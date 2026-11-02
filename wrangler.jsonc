@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "waytolive",
+  "compatibility_date": "2026-11-02",
+  "pages_build_output_dir": "./dist",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "waytolive",
+      "database_id": "132969ad-1266-4f5b-be6f-a958daea9892",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "APP_BASE_URL": "https://waytolive.pages.dev",
+    "BUSINESS_TIME_ZONE": "Asia/Bangkok",
+    "BOOKING_NOTIFICATION_EMAIL": "may.wytu@gmail.com",
+    "GOOGLE_CALENDAR_ID": "primary",
+    "GOOGLE_REDIRECT_URI": "https://waytolive.pages.dev/api/admin/google/callback"
+  }
+}

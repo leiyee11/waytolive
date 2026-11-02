@@ -29,9 +29,11 @@ const heroSlides = [
   { image: '/images/may-community-session.jpg', alt: 'May sharing reflections with participants during an outdoor group session', caption: 'A moment shared in community' },
 ];
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+
 async function apiRequest(url, options = {}) {
-  const response = await fetch(url, {
-    credentials: 'same-origin',
+  const response = await fetch(`${API_BASE_URL}${url}`, {
+    credentials: 'include',
     ...options,
     headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers },
   });
