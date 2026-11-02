@@ -55,6 +55,50 @@
 .admin-login{min-height:100vh;background:#f7f4f1;display:flex;align-items:center;justify-content:center;padding:35px;position:relative;font-family:'DM Sans',sans-serif;color:#403641}.admin-back{position:absolute;top:28px;left:32px;display:flex;align-items:center;gap:7px;text-decoration:none;color:#76667a;font-size:12px}.admin-back svg{transform:rotate(180deg)}
 .login-card{width:min(420px,100%);background:#fffaf7;border:1px solid #ece3e5;border-radius:19px;padding:39px;box-shadow:0 18px 60px rgba(72,51,68,.07)}.login-card .admin-monogram{margin-bottom:24px}.login-card .admin-kicker{margin-bottom:10px}.login-card h1{font:400 38px 'Playfair Display',serif;letter-spacing:-.04em;margin:0;color:#463947}.login-card>p{font-size:12px;color:#897d88;line-height:1.6;margin:10px 0 24px}.login-card form{display:grid;gap:14px}.login-card label{display:grid;gap:7px;font-size:10px;color:#786c78}.login-card input{border:1px solid #e8dde2;border-radius:8px;background:#fffdfa;padding:13px;color:#514452;font-size:13px}.login-card>small{display:block;margin-top:19px;color:#988c96;font-size:9px;line-height:1.5}.admin-error{margin:0;padding:9px 10px;border-radius:6px;font-size:10px}.admin-login .admin-primary{width:100%;padding:13px}.admin-loading{height:100vh;display:grid;place-items:center;background:#fffaf7;color:#765873;font:italic 20px 'Playfair Display',serif}
 .admin-signout,.admin-sidebar nav button,.admin-top-actions button,.admin-primary,.admin-subtle,.icon-danger{transition:background .18s,color .18s,transform .18s}.admin-primary:hover,.admin-subtle:hover,.icon-danger:hover{transform:translateY(-1px)}
+/* Keep dashboard labels and working text comfortably readable. */
+.admin-brand small{font-size:10px}
+.admin-sidebar nav button,.admin-signout{font-size:14px}
+.admin-sidebar nav button i{font-size:12px}
+.admin-kicker{font-size:11px}
+.admin-top-actions>a{font-size:13px}
+.admin-overview-tools label,.month-filter,.panel-title>label{font-size:12px}
+.admin-overview-tools input,.month-filter input,.panel-title>label input{font-size:14px}
+.metric-grid article>span{font-size:10px}
+.metric-grid article>small{font-size:12px}
+.admin-subtle{font-size:12px}
+.booking-person b{font-size:14px}
+.booking-person a{font-size:12px}
+.booking-facts{font-size:12px}
+.booking-selects label{font-size:10px}
+.booking-selects select{font-size:12px}
+.status-chip{font-size:10px}
+.sync-state,.amount-editor{font-size:11px}
+.amount-editor input{font-size:12px}
+.note-toggle{font-size:11px}
+.client-note span{font-size:10px}
+.client-note p{font-size:13px}
+.admin-empty{font-size:14px}
+.admin-alert{font-size:13px}
+.panel-copy{font-size:14px}
+.time-grid label{font-size:12px}
+.time-grid label small{font-size:10px}
+.admin-primary{font-size:13px}
+.availability-extra label{font-size:11px}
+.availability-extra input{font-size:14px}
+.event-form label{font-size:12px}
+.event-form input,.event-form textarea{font-size:14px}
+.event-admin-list>article>div>span{font-size:11px}
+.event-admin-list small{font-size:12px}
+.google-panel>p{font-size:15px}
+.google-panel>small{font-size:12px}
+.setup-note{font-size:13px}
+.setup-note code{font-size:12px}
+.admin-back{font-size:14px}
+.login-card>p{font-size:14px}
+.login-card label{font-size:12px}
+.login-card input{font-size:15px}
+.login-card>small{font-size:11px}
+.admin-error{font-size:12px}
 @media(max-width:1050px){.admin-shell{grid-template-columns:205px minmax(0,1fr)}.admin-sidebar{padding-left:11px;padding-right:11px}.admin-main{padding-left:25px;padding-right:25px}.booking-row-main{grid-template-columns:1fr 1fr}.booking-selects{grid-column:1/-1;max-width:360px}.time-grid{grid-template-columns:repeat(4,minmax(90px,1fr))}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:760px){.admin-shell{display:block}.admin-sidebar{position:static;width:100%;height:auto;padding:12px 15px;border-right:0;border-bottom:1px solid #ece3e5;display:grid;grid-template-columns:1fr auto;align-items:center}.admin-brand{padding:0}.admin-brand .admin-monogram{width:33px;height:33px}.admin-sidebar nav{grid-column:1/-1;grid-row:2;display:flex;gap:4px;overflow:auto;padding-top:12px}.admin-sidebar nav button{white-space:nowrap;min-height:37px;padding:0 10px;font-size:10px}.admin-signout{grid-column:2;grid-row:1;margin:0;border:0;padding:8px;font-size:0}.admin-signout svg{width:18px;height:18px}.admin-main{padding:25px 17px 50px}.admin-topbar h1{font-size:32px}.events-admin-grid{grid-template-columns:1fr}.booking-row-main{grid-template-columns:1fr}.booking-selects{grid-column:auto;max-width:none}.time-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){.admin-shell{display:block}.admin-sidebar{position:static;width:100%;height:auto;padding:12px 15px;border-right:0;border-bottom:1px solid #ece3e5;display:grid;grid-template-columns:1fr auto;align-items:center}.admin-brand{padding:0}.admin-brand .admin-monogram{width:33px;height:33px}.admin-sidebar nav{grid-column:1/-1;grid-row:2;display:flex;gap:4px;overflow:auto;padding-top:12px}.admin-sidebar nav button{white-space:nowrap;min-height:37px;padding:0 10px;font-size:12px}.admin-signout{grid-column:2;grid-row:1;margin:0;border:0;padding:8px;font-size:0}.admin-signout svg{width:18px;height:18px}.admin-main{padding:25px 17px 50px}.admin-topbar h1{font-size:32px}.events-admin-grid{grid-template-columns:1fr}.booking-row-main{grid-template-columns:1fr}.booking-selects{grid-column:auto;max-width:none}.time-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:480px){.metric-grid{gap:8px}.metric-grid article{padding:14px 12px;min-height:102px}.metric-grid article>b{font-size:24px}.admin-panel{padding:16px;border-radius:12px}.panel-title{align-items:flex-start;flex-direction:column}.panel-title h2{font-size:22px}.panel-title>label{align-items:flex-start;flex-direction:column}.booking-row{padding:13px}.booking-row-foot{flex-wrap:wrap;gap:9px}.amount-editor{margin-left:0}.time-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.event-form-row{grid-template-columns:1fr}.availability-extra{flex-wrap:wrap}.google-panel{padding:22px}.login-card{padding:28px}.admin-back{left:20px;top:20px}}

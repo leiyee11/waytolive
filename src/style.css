@@ -53,6 +53,34 @@ body{background:#fff8ef}
 @media(max-width:900px){.portfolio-grid{grid-template-columns:1fr 1fr}.personal-card{grid-row:span 2}.portfolio-heading{gap:25px}.portfolio-card{min-height:310px}}
 @media(max-width:640px){.portfolio-heading{display:block;margin-bottom:24px}.portfolio-heading>.section-label{position:static;transform:none}.portfolio-heading h2{font-size:46px;margin-top:13px}.portfolio-heading>p{margin-top:12px}.portfolio-grid{grid-template-columns:1fr}.personal-card{grid-row:auto}.portfolio-card{min-height:280px;padding:21px}.personal-card{min-height:335px}.credentials-card{min-height:310px}}
 
+.language-toggle{border:1px solid #d9cbbd;border-radius:999px;background:transparent;color:var(--ink);padding:8px 12px;font-size:12px;line-height:1;white-space:nowrap}
+.language-toggle:hover{background:#f1e5d8}
+html[lang="my"] body{font-family:"Noto Sans Myanmar","Myanmar Text","Padauk",sans-serif;line-height:1.8}
+html[lang="my"] .hero h1{line-height:1.35;letter-spacing:0}
+html[lang="my"] .approach h2,html[lang="my"] .sessions h2,html[lang="my"] .cta-section h2,html[lang="my"] .booking-modal h2,html[lang="my"] .portfolio-heading h2,html[lang="my"] .portfolio-card h3{font-family:"Noto Serif Myanmar","Myanmar Text","Padauk",serif;line-height:1.5;letter-spacing:0}
+html[lang="my"] .hero-lede,html[lang="my"] .approach-text p,html[lang="my"] .sessions-heading>p,html[lang="my"] .portfolio-heading>p,html[lang="my"] .portfolio-card>p,html[lang="my"] .offering p,html[lang="my"] .booking-modal label,html[lang="my"] .modal-intro,html[lang="my"] .confirmation p{line-height:2}
+html[lang="my"] .nav-links>a,html[lang="my"] .nav-cta,html[lang="my"] .button{line-height:1.7}
+html[lang="my"] .section-label{line-height:2;letter-spacing:.04em}
+html[lang="my"] .hero h1,html[lang="my"] .approach h2,html[lang="my"] .sessions h2,html[lang="my"] .cta-section h2,html[lang="my"] .booking-modal h2,html[lang="my"] .portfolio-heading h2,html[lang="my"] .public-events h2{font-family:"Noto Serif Myanmar","Myanmar Text","Padauk",serif}
+html[lang="my"] .hero h1{font-size:clamp(48px,5.6vw,76px)}
+html[lang="my"] .approach h2,html[lang="my"] .sessions h2{font-size:clamp(38px,4.2vw,54px)}
+html[lang="my"] .cta-section h2{font-size:50px}
+html[lang="my"] .portfolio-heading h2,html[lang="my"] .public-events h2{font-size:clamp(36px,4.5vw,54px)}
+@media(max-width:640px){.language-toggle{align-self:flex-start}.nav-links.open .nav-cta{width:100%}html[lang="my"] .hero h1{font-size:42px}html[lang="my"] .approach h2,html[lang="my"] .sessions h2{font-size:32px}html[lang="my"] .portfolio-heading h2,html[lang="my"] .public-events h2{font-size:32px}html[lang="my"] .cta-section h2{font-size:40px}}
+
+/* Burmese glyphs have a taller visual footprint, so scale regular copy to match. */
+html[lang="my"] .nav-links>a,html[lang="my"] .nav-cta,html[lang="my"] .language-toggle,
+html[lang="my"] .eyebrow,html[lang="my"] .section-label,html[lang="my"] .hero-lede,html[lang="my"] .hero-note,
+html[lang="my"] .text-link,html[lang="my"] .approach-text p,html[lang="my"] .values-row b,html[lang="my"] .values-row small,
+html[lang="my"] .sessions-heading>p,html[lang="my"] .offering-type,html[lang="my"] .offering h3,html[lang="my"] .offering p,
+html[lang="my"] .offering-bottom,html[lang="my"] .quote-section blockquote,html[lang="my"] .quote-author b,html[lang="my"] .quote-author small,
+html[lang="my"] .cta-section p,html[lang="my"] .footer-note,html[lang="my"] .copyright,html[lang="my"] .portfolio-heading>p,
+html[lang="my"] .portfolio-card h3,html[lang="my"] .portfolio-card>p,html[lang="my"] .certificate-card figcaption,
+html[lang="my"] .public-event-card .event-date,html[lang="my"] .public-event-card h3,html[lang="my"] .public-event-card p,
+html[lang="my"] .booking-modal .eyebrow,html[lang="my"] .booking-modal .modal-intro,html[lang="my"] .booking-modal label,
+html[lang="my"] .booking-modal input,html[lang="my"] .booking-modal select,html[lang="my"] .booking-modal textarea,
+html[lang="my"] .confirmation p{font-size:.85em}
+
 /* More generous type sizing for easier reading. */
 .nav-links>a,.nav-cta{font-size:14px}
 .hero-lede{font-size:17px}
@@ -303,6 +331,8 @@ body{background:#fffaf6;color:#403641}
 .booking-modal select::-ms-expand{display:none}
 .booking-modal select:focus-visible,.booking-modal input:focus-visible,.booking-modal textarea:focus-visible{outline:2px solid #b994aa;outline-offset:2px}
 .booking-modal .form-row{gap:15px}
+.booking-modal .form-row>label{grid-template-rows:auto 46px auto;align-content:start;align-self:start}
+.booking-modal .form-row>label>select{height:46px;align-self:start}
 .booking-modal .submit-button{min-height:50px;margin-top:4px}
 .booking-modal .privacy-note{line-height:1.5;margin-top:-3px}
 .availability-hint{font-size:10px;line-height:1.45;color:#817581}

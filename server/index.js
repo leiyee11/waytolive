@@ -27,6 +27,9 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || `http://127.0.0.1:${PORT}/api/admin/google/callback`;
 const GOOGLE_CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'primary';
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const BOOKING_FROM_EMAIL = process.env.BOOKING_FROM_EMAIL || '';
+const BOOKING_NOTIFICATION_EMAIL = process.env.BOOKING_NOTIFICATION_EMAIL || 'may.wytu@gmail.com';
 const SESSION_COOKIE = 'waytolive_admin';
 const sessions = new Map();
 const oauthStates = new Map();
@@ -102,6 +105,13 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS booking_notifications (
+    booking_id INTEGER PRIMARY KEY REFERENCES bookings(id) ON DELETE CASCADE,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    sent_at TEXT,
+    last_error TEXT
+  );
 `);
 
 function todayLocalISO() {
@@ -172,15 +182,38 @@ async function bodyJson(req) {
   }
   try { return raw ? JSON.parse(raw) : {}; } catch { throw new Error('Invalid JSON request.'); }
 }
-function safeDate(value) { return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T12:00:00Z`)); }
+function safeDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+function safeTime(value) {
+  if (typeof value !== 'string' || !/^\d{2}:\d{2}$/.test(value)) return false;
+  const [hour, minute] = value.split(':').map(Number);
+  return hour < 24 && minute < 60;
+}
 function labelTime(time) {
   const [hourText, minute] = time.split(':');
   const hour = Number(hourText);
   return `${hour % 12 || 12}:${minute} ${hour < 12 ? 'AM' : 'PM'}`;
 }
 function addMinutes(date, time, minutes) {
+  // Convert a wall-clock time in BUSINESS_TIME_ZONE to an instant. Iterating
+  // the offset handles zones other than Bangkok without depending on host TZ.
+  const [year, month, day] = date.split('-').map(Number);
   const [hour, minute] = time.split(':').map(Number);
-  const start = new Date(`${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+07:00`);
+  const wallClock = Date.UTC(year, month - 1, day, hour, minute);
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  });
+  let instant = wallClock;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(instant)).map(({ type, value }) => [type, value]));
+    const represented = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second));
+    instant += wallClock - represented;
+  }
+  const start = new Date(instant);
   return new Date(start.getTime() + minutes * 60000);
 }
 function durationFor(service) {
@@ -229,6 +262,19 @@ function slotOverlapsBusy(date, time, service, busy) {
   return busy.some((range) => new Date(range.start).getTime() < end && new Date(range.end).getTime() > start);
 }
 
+function bookingOverlaps(date, time, service, excludeId = null) {
+  const start = addMinutes(date, time, 0).getTime();
+  const end = addMinutes(date, time, durationFor(service)).getTime();
+  const existing = db.prepare(`SELECT id,date,time,service FROM bookings
+    WHERE date=? AND status IN ('pending','confirmed')${excludeId ? ' AND id<>?' : ''}`)
+    .all(...(excludeId ? [date, excludeId] : [date]));
+  return existing.some((booking) => {
+    const otherStart = addMinutes(booking.date, booking.time, 0).getTime();
+    const otherEnd = addMinutes(booking.date, booking.time, durationFor(booking.service)).getTime();
+    return otherStart < end && otherEnd > start;
+  });
+}
+
 async function addCalendarHold(booking) {
   const token = await getGoogleAccessToken();
   if (!token) return null;
@@ -275,6 +321,60 @@ function bookingDto(row) {
 }
 function eventDto(row) { return row; }
 
+const notificationInFlight = new Set();
+async function sendBookingNotification(bookingId) {
+  if (!RESEND_API_KEY || !BOOKING_FROM_EMAIL || notificationInFlight.has(bookingId)) return;
+  const notification = db.prepare(`SELECT n.attempts,b.* FROM booking_notifications n
+    JOIN bookings b ON b.id=n.booking_id WHERE n.booking_id=? AND n.sent_at IS NULL`).get(bookingId);
+  if (!notification) return;
+  notificationInFlight.add(bookingId);
+  try {
+    const dateLabel = new Intl.DateTimeFormat('en', { dateStyle: 'full', timeZone: TZ }).format(addMinutes(notification.date, notification.time, 0));
+    const timeLabel = new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit', timeZone: TZ }).format(addMinutes(notification.date, notification.time, 0));
+    const text = [
+      'A new Way to Live session request was received.', '',
+      `Client: ${notification.name}`,
+      `Email: ${notification.email}`,
+      `Session: ${notification.service}`,
+      `Date: ${dateLabel}`,
+      `Time: ${timeLabel} (${TZ})`,
+      `Format: ${notification.format}`,
+      `Booking ID: ${bookingId}`,
+      '', 'Open the Way to Live dashboard to review the request and the client note.',
+    ].join('\n');
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: BOOKING_FROM_EMAIL, to: [BOOKING_NOTIFICATION_EMAIL], subject: `New session request: ${notification.name}`, text }),
+      signal: AbortSignal.timeout(12_000),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || result.name || `Email provider returned ${response.status}.`);
+    db.prepare('UPDATE booking_notifications SET sent_at=CURRENT_TIMESTAMP,last_error=NULL WHERE booking_id=?').run(bookingId);
+  } catch (error) {
+    const attempts = notification.attempts + 1;
+    const delayMinutes = Math.min(60, 2 ** Math.min(attempts, 6));
+    db.prepare(`UPDATE booking_notifications SET attempts=?,next_attempt_at=datetime('now',?),last_error=? WHERE booking_id=?`)
+      .run(attempts, `+${delayMinutes} minutes`, String(error.message).slice(0, 500), bookingId);
+    console.error(`Booking email notification failed for booking ${bookingId}; retrying in ${delayMinutes} minutes:`, error.message);
+  } finally {
+    notificationInFlight.delete(bookingId);
+  }
+}
+
+async function dispatchBookingNotifications() {
+  if (!RESEND_API_KEY || !BOOKING_FROM_EMAIL) return;
+  const pending = db.prepare(`SELECT booking_id FROM booking_notifications
+    WHERE sent_at IS NULL AND next_attempt_at<=CURRENT_TIMESTAMP ORDER BY booking_id LIMIT 20`).all();
+  for (const { booking_id: bookingId } of pending) await sendBookingNotification(bookingId);
+}
+
+const notificationTimer = setInterval(() => {
+  dispatchBookingNotifications().catch((error) => console.error('Booking notification queue error:', error.message));
+}, 60_000);
+notificationTimer.unref();
+dispatchBookingNotifications().catch((error) => console.error('Booking notification queue error:', error.message));
+
 async function route(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname;
@@ -284,12 +384,14 @@ async function route(req, res) {
   if (req.method === 'GET' && pathname === '/api/availability') {
     const date = url.searchParams.get('date');
     if (!safeDate(date)) return fail(res, 400, 'Choose a valid date.');
+    const service = url.searchParams.get('service') || 'One-to-one counselling';
+    if (!Object.hasOwn(prices, service)) return fail(res, 400, 'Choose a valid session.');
     let busy;
     try { busy = await busyIntervals(date); } catch (error) { return fail(res, 503, error.message); }
-    const rows = db.prepare(`SELECT a.time FROM availability a WHERE a.date=? AND a.enabled=1
-      AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.date=a.date AND b.time=a.time AND b.status IN ('pending','confirmed'))
-      ORDER BY a.time`).all(date);
-    const slots = rows.filter((row) => !busy || !slotOverlapsBusy(date, row.time, 'One-to-one counselling', busy)).map((row) => ({ value: row.time, label: labelTime(row.time) }));
+    const rows = db.prepare('SELECT time FROM availability WHERE date=? AND enabled=1 ORDER BY time').all(date);
+    const slots = rows.filter((row) => !bookingOverlaps(date, row.time, service)
+      && (!busy || !slotOverlapsBusy(date, row.time, service, busy)))
+      .map((row) => ({ value: row.time, label: labelTime(row.time) }));
     return send(res, 200, { date, slots, googleConnected: Boolean(googleTokenRow()) });
   }
 
@@ -310,24 +412,30 @@ async function route(req, res) {
     const note = String(data.note || '').trim();
     if (name.length < 2 || name.length > 100) return fail(res, 400, 'Enter a name between 2 and 100 characters.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return fail(res, 400, 'Enter a valid email address.');
-    if (!safeDate(date) || date < todayLocalISO()) return fail(res, 400, 'Choose a valid future date.');
-    if (!/^\d{2}:\d{2}$/.test(time) || !['Online', 'In-person'].includes(format) || !Object.hasOwn(prices, service)) return fail(res, 400, 'Choose a valid session date, time, and format.');
+    if (!safeDate(date) || date < todayLocalISO() || !safeTime(time)) return fail(res, 400, 'Choose a valid future date and time.');
+    if (!['Online', 'In-person'].includes(format) || !Object.hasOwn(prices, service)) return fail(res, 400, 'Choose a valid session and format.');
+    if (addMinutes(date, time, 0).getTime() <= Date.now()) return fail(res, 400, 'Choose a future session time.');
     if (note.length > 3000) return fail(res, 400, 'Please keep your note under 3,000 characters.');
     const available = db.prepare('SELECT id FROM availability WHERE date=? AND time=? AND enabled=1').get(date, time);
     if (!available) return fail(res, 409, 'That time is not available on this date. Please choose another slot.');
-    if (db.prepare("SELECT id FROM bookings WHERE date=? AND time=? AND status IN ('pending','confirmed')").get(date, time)) return fail(res, 409, 'That time was just booked. Please choose another slot.');
+    if (bookingOverlaps(date, time, service)) return fail(res, 409, 'That time overlaps another active booking. Please choose another slot.');
     let busy;
     try { busy = await busyIntervals(date); } catch (error) { return fail(res, 503, `Could not check May’s calendar: ${error.message}`); }
     if (busy && slotOverlapsBusy(date, time, service, busy)) return fail(res, 409, 'That time is busy on May’s calendar. Please choose another slot.');
-    let result;
+    let id;
     try {
-      result = db.prepare(`INSERT INTO bookings(name,email,date,time,format,service,note,price_cents,calendar_sync_status)
+      db.exec('BEGIN IMMEDIATE');
+      const result = db.prepare(`INSERT INTO bookings(name,email,date,time,format,service,note,price_cents,calendar_sync_status)
         VALUES(?,?,?,?,?,?,?,?,?)`).run(name, email, date, time, format, service, note, prices[service], busy ? 'pending_sync' : 'not_connected');
+      id = Number(result.lastInsertRowid);
+      db.prepare('INSERT INTO booking_notifications(booking_id) VALUES(?)').run(id);
+      db.exec('COMMIT');
     } catch (error) {
+      try { db.exec('ROLLBACK'); } catch {}
       if (String(error.message).includes('unique_active_booking_slot') || String(error.message).includes('UNIQUE constraint failed: bookings.date, bookings.time')) return fail(res, 409, 'That time was just booked. Please choose another slot.');
       throw error;
     }
-    const id = Number(result.lastInsertRowid);
+    dispatchBookingNotifications().catch((error) => console.error('Booking notification queue error:', error.message));
     if (busy) {
       try {
         const eventId = await addCalendarHold({ id, date, time, format, service });
@@ -415,6 +523,8 @@ async function route(req, res) {
       const amount = data.amount === undefined ? current.price_cents : Math.round(Number(data.amount) * 100);
       if (!['pending','confirmed','completed','cancelled'].includes(status) || !['paid','unpaid'].includes(paymentStatus) || !Number.isFinite(amount) || amount < 0 || amount > 100_000_000) return fail(res, 400, 'The booking update is invalid.');
       const paidAt = paymentStatus === 'paid' ? (current.payment_status === 'paid' ? current.paid_at : new Date().toISOString()) : null;
+      if (['pending', 'confirmed'].includes(status) && !['pending', 'confirmed'].includes(current.status)
+        && bookingOverlaps(current.date, current.time, current.service, id)) return fail(res, 409, 'That time overlaps another active booking.');
       try { db.prepare('UPDATE bookings SET status=?,payment_status=?,price_cents=?,paid_at=? WHERE id=?').run(status, paymentStatus, amount, paidAt, id); }
       catch (error) { if (String(error.message).includes('unique_active_booking_slot') || String(error.message).includes('UNIQUE constraint failed: bookings.date, bookings.time')) return fail(res, 409, 'That time already has an active booking.'); throw error; }
       const updated = db.prepare('SELECT * FROM bookings WHERE id=?').get(id);

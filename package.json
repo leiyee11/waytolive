@@ -11,10 +11,11 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
+    "i18next": "^26.5.11",
+    "lucide-react": "^0.468.0",
     "react": "latest",
     "react-dom": "latest",
-    "lucide-react": "^0.468.0"
-  },
-  "devDependencies": {}
+    "react-i18next": "^17.1.9",
+    "vite": "latest"
+  }
 }
