@@ -49,6 +49,6 @@ The app checks calendar busy times before accepting a booking request and create
 - Create and remove upcoming events. Published future events appear on the landing page.
 - Connect or disconnect Google Calendar from the dashboard.
 
-Prices and currency are currently the landing page's sample USD prices; edit `prices` in `server/index.js` and the service cards in `src/main.jsx` together before taking live payments. Payments are recorded manually in the dashboard; this project does not process card payments.
+Session rates are shown in THB, with online counselling for clients in Myanmar priced in MMK. The API calculates and stores the rate and currency for each booking. Payments are recorded manually in the dashboard; this project does not process card payments.
 
 The production site and API run on Cloudflare Pages; back up the D1 data and keep all API secrets private. The local SQLite database remains in `data/waytolive.sqlite` for local development.

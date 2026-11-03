@@ -1,9 +1,22 @@
 const SESSION_COOKIE = 'waytolive_admin';
-const PRICES = {
-  'One-to-one counselling': 9000,
-  'Guided meditation': 4500,
-  'The first conversation': 0,
+const SERVICES = {
+  'One-to-one counselling': 60,
+  'Breathwork + meditation (private)': 90,
+  'Breathwork + meditation (group, up to 5 people)': 90,
+  'The first conversation': 20,
 };
+function pricingFor(country, service, format) {
+  const onlineOnly = country === 'Myanmar' || service === 'The first conversation';
+  if (!['Thailand', 'Myanmar'].includes(country) || !Object.hasOwn(SERVICES, service) || !['Online', 'In-person'].includes(format) || (onlineOnly && format !== 'Online')) return null;
+  if (country === 'Myanmar' && service === 'One-to-one counselling') return { priceCents: 3000000, currency: 'MMK' };
+  const rates = {
+    'One-to-one counselling': { Online: 30000, 'In-person': 50000 },
+    'Breathwork + meditation (private)': { Online: 50000, 'In-person': 70000 },
+    'Breathwork + meditation (group, up to 5 people)': { Online: 100000, 'In-person': 150000 },
+    'The first conversation': { Online: 0 },
+  };
+  return { priceCents: rates[service][format], currency: 'THB' };
+}
 const WEEKLY_SLOTS = {
   0: [],
   1: ['09:00', '11:00', '14:00', '16:00'],
@@ -55,11 +68,7 @@ function addMinutes(date, time, minutes, env) {
   }
   return new Date(instant + minutes * 60_000);
 }
-function durationFor(service) {
-  if (service === 'Guided meditation') return 30;
-  if (service === 'The first conversation') return 20;
-  return 50;
-}
+function durationFor(service) { return SERVICES[service] || 60; }
 function parseCookies(request) {
   return Object.fromEntries((request.headers.get('cookie') || '').split(';').map((part) => part.trim()).filter(Boolean).map((part) => {
     const index = part.indexOf('=');
@@ -220,6 +229,8 @@ async function sendBookingEmail(env, booking) {
   const text = [
     'A new Way to Live session request was received.', '', `Client: ${booking.name}`, `Email: ${booking.email}`,
     `Session: ${booking.service}`, `Date: ${dateLabel}`, `Time: ${timeLabel} (${timezone(env)})`, `Format: ${booking.format}`,
+    `Country: ${booking.country}`, `Price: ${booking.price_cents / 100} ${booking.currency}`,
+    `Participants: ${booking.participant_count}`,
     `Booking ID: ${booking.id}`, '', 'Open the Way to Live dashboard to review the request and client note.',
   ].join('\n');
   const response = await fetch('https://api.resend.com/emails', {
@@ -244,7 +255,8 @@ async function route(context) {
     const date = url.searchParams.get('date');
     if (!safeDate(date)) return fail('Choose a valid date.');
     const service = url.searchParams.get('service') || 'One-to-one counselling';
-    if (!Object.hasOwn(PRICES, service)) return fail('Choose a valid session.');
+    const country = url.searchParams.get('country') || 'Thailand';
+    if (!Object.hasOwn(SERVICES, service) || !['Thailand', 'Myanmar'].includes(country)) return fail('Choose a valid session and country.');
     try {
       const busy = await busyIntervals(db, env, date);
       const [slots, bookings] = await Promise.all([
@@ -272,25 +284,29 @@ async function route(context) {
     const name = String(data.name || '').trim();
     const email = String(data.email || '').trim();
     const { date, time, format, service } = data;
+    const country = data.country || 'Thailand';
+    const participantCount = Number(data.participantCount || 1);
     const note = String(data.note || '').trim();
     if (name.length < 2 || name.length > 100) return fail('Enter a name between 2 and 100 characters.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return fail('Enter a valid email address.');
     if (!safeDate(date) || date < todayLocalISO(env) || !safeTime(time)) return fail('Choose a valid future date and time.');
-    if (!['Online', 'In-person'].includes(format) || !Object.hasOwn(PRICES, service)) return fail('Choose a valid session and format.');
+    const pricing = pricingFor(country, service, format);
+    if (!pricing) return fail('Choose a valid session, country, and available format.');
+    if ((service === 'Breathwork + meditation (group, up to 5 people)' && (!Number.isInteger(participantCount) || participantCount < 3 || participantCount > 5)) || (service !== 'Breathwork + meditation (group, up to 5 people)' && participantCount !== 1)) return fail('Choose a valid group size.');
     if (addMinutes(date, time, 0, env).getTime() <= Date.now()) return fail('Choose a future session time.');
     if (note.length > 3000) return fail('Please keep your note under 3,000 characters.');
     const busy = await busyIntervals(db, env, date).catch((error) => { throw Object.assign(error, { status: 503 }); });
     if (busy && overlapsBusy(date, time, service, busy, env)) return fail('That time is busy on May’s calendar. Please choose another slot.', 409);
     const { start, end } = durationColumns(date, time, service, env);
-    const result = await db.prepare(`INSERT INTO bookings(name,email,date,time,format,service,note,status,price_cents,payment_status,
+    const result = await db.prepare(`INSERT INTO bookings(name,email,date,time,format,service,note,status,price_cents,country,currency,participant_count,payment_status,
       starts_at_ms,ends_at_ms,calendar_sync_status)
-      SELECT ?,?,?,?,?,?,?,'pending',?,'unpaid',?,?,'not_connected'
+      SELECT ?,?,?,?,?,?,?,'pending',?,?,?,?,'unpaid',?,?,'not_connected'
       WHERE EXISTS(SELECT 1 FROM availability WHERE date=? AND time=? AND enabled=1)
       AND NOT EXISTS(SELECT 1 FROM bookings WHERE status IN ('pending','confirmed') AND starts_at_ms < ? AND ends_at_ms > ?)`)
-      .bind(name, email, date, time, format, service, note, PRICES[service], start, end, date, time, end, start).run();
+      .bind(name, email, date, time, format, service, note, pricing.priceCents, country, pricing.currency, participantCount, start, end, date, time, end, start).run();
     if (result.meta.changes !== 1) return fail('That time is no longer available. Please choose another slot.', 409);
     const id = Number(result.meta.last_row_id);
-    const booking = { id, name, email, date, time, format, service, note, status: 'pending', price_cents: PRICES[service], calendar_event_id: null };
+    const booking = { id, name, email, date, time, format, service, country, currency: pricing.currency, participant_count: participantCount, note, status: 'pending', price_cents: pricing.priceCents, calendar_event_id: null };
     if (context.waitUntil) context.waitUntil(sendBookingEmail(env, booking).catch((error) => console.error('Booking email failed', id, error.message)));
     try {
       if (busy) {
@@ -345,11 +361,11 @@ async function route(context) {
     const next = new Date(`${month}-01T00:00:00Z`); next.setUTCMonth(next.getUTCMonth() + 1);
     const end = next.toISOString().slice(0, 10);
     const [sales, pending, events] = await Promise.all([
-      db.prepare("SELECT COALESCE(SUM(price_cents),0) AS cents,COUNT(*) AS count FROM bookings WHERE payment_status='paid' AND paid_at>=? AND paid_at<?").bind(`${month}-01T00:00:00.000Z`, `${end}T00:00:00.000Z`).first(),
+      db.prepare("SELECT currency,COALESCE(SUM(price_cents),0) AS cents,COUNT(*) AS count FROM bookings WHERE payment_status='paid' AND paid_at>=? AND paid_at<? GROUP BY currency").bind(`${month}-01T00:00:00.000Z`, `${end}T00:00:00.000Z`).all(),
       db.prepare("SELECT COUNT(*) AS count FROM bookings WHERE status='pending'").first(),
       db.prepare('SELECT COUNT(*) AS count FROM events WHERE is_published=1 AND starts_at>=?').bind(new Date().toISOString()).first(),
     ]);
-    return json({ salesCents: sales.cents, paidCount: sales.count, pendingCount: pending.count, upcomingEvents: events.count, currency: 'USD' });
+    return json({ salesByCurrency: Object.fromEntries(sales.results.map((row) => [row.currency, row.cents])), paidCount: sales.results.reduce((sum, row) => sum + row.count, 0), pendingCount: pending.count, upcomingEvents: events.count });
   }
   if (method === 'GET' && path === '/admin/bookings') {
     const month = url.searchParams.get('month') || '';

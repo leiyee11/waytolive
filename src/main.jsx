@@ -7,10 +7,23 @@ import { useTranslation } from 'react-i18next';
 import './style.css';
 
 const offerings = [
-  { number: '01', title: 'One-to-one counselling', titleKey: 'serviceCounselling', type: 'COUNSELLING', typeKey: 'serviceCounsellingType', copy: 'A calm, confidential space to untangle what feels heavy and find your own way forward.', copyKey: 'serviceCounsellingCopy', duration: '50 minutes', price: '$90', icon: Heart },
-  { number: '02', title: 'Guided meditation', titleKey: 'serviceMeditation', type: 'MEDITATION', typeKey: 'serviceMeditationType', copy: 'Gentle, practical sessions to help you slow down, reconnect, and make room for the present.', copyKey: 'serviceMeditationCopy', duration: '30 minutes', price: '$45', icon: Sparkles },
-  { number: '03', title: 'The first conversation', titleKey: 'serviceIntro', type: 'FREE · 20 MIN', typeKey: 'serviceIntroType', copy: 'Not sure where to begin? Let’s meet for a no-pressure chat and see what feels right.', copyKey: 'serviceIntroCopy', duration: '20 minutes', price: 'Free', icon: Clock3 },
+  { number: '01', title: 'One-to-one counselling', titleKey: 'serviceCounselling', type: 'COUNSELLING · DISCUSSION', typeKey: 'serviceCounsellingType', copy: 'A calm, confidential one-hour space to untangle what feels heavy and find your own way forward.', copyKey: 'serviceCounsellingCopy', duration: '1 hour', price: 'Online ฿300 · In-person ฿500', myanmarPrice: 'Myanmar online: 30,000 MMK', icon: Heart },
+  { number: '02', title: 'Breathwork + meditation (private)', titleKey: 'serviceBreathwork', type: 'PRIVATE SESSION', typeKey: 'serviceBreathworkType', copy: 'A private breathwork and meditation session to help you slow down, reconnect, and make room for the present.', copyKey: 'serviceBreathworkCopy', duration: '1.5 hours', price: 'Online ฿500 · In-person ฿700', icon: Sparkles },
+  { number: '03', title: 'Breathwork + meditation (group, up to 5 people)', titleKey: 'serviceGroup', type: 'GROUP SESSION · UP TO 5 PEOPLE', typeKey: 'serviceGroupType', copy: 'Share a guided breathwork and meditation practice with up to four other people.', copyKey: 'serviceGroupCopy', duration: '1.5 hours', price: 'Online ฿1,000 · In-person ฿1,500', priceNote: 'Fixed total for up to 5 people', icon: Sparkles },
+  { number: '04', title: 'The first conversation', titleKey: 'serviceIntro', type: 'FREE · ONLINE ONLY', typeKey: 'serviceIntroType', copy: 'Not sure where to begin? Let’s meet online for a free 20-minute chat and see what feels right.', copyKey: 'serviceIntroCopy', duration: '20 minutes', price: 'Free · Online only', icon: Clock3 },
 ];
+
+const moneyLabel = (amount, currency) => `${currency === 'THB' ? '฿' : 'MMK '}${Number(amount).toLocaleString('en-US')}`;
+function selectedPrice(service, country, format) {
+  if (country === 'Myanmar' && service === 'One-to-one counselling') return { amount: 30000, currency: 'MMK' };
+  const rates = {
+    'One-to-one counselling': { Online: 300, 'In-person': 500 },
+    'Breathwork + meditation (private)': { Online: 500, 'In-person': 700 },
+    'Breathwork + meditation (group, up to 5 people)': { Online: 1000, 'In-person': 1500 },
+    'The first conversation': { Online: 0 },
+  };
+  return { amount: rates[service]?.[format] ?? 0, currency: 'THB' };
+}
 
 const certificates = [
   { title: 'Reiki Level 2 · Okuden', date: '19 March 2023', image: '/certificates/reiki-level-2-okuden.jpeg' },
@@ -65,9 +78,13 @@ function App() {
   const [submittingBooking, setSubmittingBooking] = useState(false);
   const [upcomingEvents, setUpcomingEvents] = useState([]);
   const [sessionFormat, setSessionFormat] = useState('Online');
+  const [country, setCountry] = useState('Thailand');
+  const [participantCount, setParticipantCount] = useState('3');
   const [activeSlide, setActiveSlide] = useState(0);
   const [sliderPaused, setSliderPaused] = useState(false);
   const availableTimes = availableSlots;
+  const onlineOnly = country === 'Myanmar' || selected === 'The first conversation';
+  const price = selectedPrice(selected, country, sessionFormat);
 
   useEffect(() => {
     document.documentElement.lang = i18n.language === 'my' ? 'my' : 'en';
@@ -86,12 +103,13 @@ function App() {
     if (!bookingDate) { setAvailableSlots([]); setAvailabilityError(''); return; }
     const controller = new AbortController();
     setAvailableSlots([]); setAvailabilityError(''); setAvailabilityLoading(true);
-    apiRequest(`/api/availability?date=${encodeURIComponent(bookingDate)}`, { signal: controller.signal })
+    const query = new URLSearchParams({ date: bookingDate, service: selected, country });
+    apiRequest(`/api/availability?${query}`, { signal: controller.signal })
       .then((result) => setAvailableSlots(result.slots || []))
       .catch((error) => { if (error.name !== 'AbortError') setAvailabilityError(error.message); })
       .finally(() => { if (!controller.signal.aborted) setAvailabilityLoading(false); });
     return () => controller.abort();
-  }, [bookingDate]);
+  }, [bookingDate, selected, country]);
 
   useEffect(() => {
     if (sliderPaused || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -128,7 +146,7 @@ function App() {
   }
 
   function openBooking(service = offerings[0].title) {
-    setSelected(service); setConfirmed(false); setBooking(true); setMenuOpen(false); setBookingDate(''); setBookingTime(''); setAvailableSlots([]); setBookingError(''); setSessionFormat('Online');
+    setSelected(service); setConfirmed(false); setBooking(true); setMenuOpen(false); setBookingDate(''); setBookingTime(''); setAvailableSlots([]); setBookingError(''); setSessionFormat('Online'); setCountry('Thailand'); setParticipantCount('3');
   }
 
   async function submitBooking(event) {
@@ -136,7 +154,9 @@ function App() {
     const form = new FormData(event.currentTarget);
     setSubmittingBooking(true); setBookingError('');
     try {
-      await apiRequest('/api/bookings', { method: 'POST', body: JSON.stringify(Object.fromEntries(form.entries())) });
+      const bookingData = Object.fromEntries(form.entries());
+      if (bookingData.service !== 'Breathwork + meditation (group, up to 5 people)') bookingData.participantCount = '1';
+      await apiRequest('/api/bookings', { method: 'POST', body: JSON.stringify(bookingData) });
       setConfirmed(true);
     } catch (error) { setBookingError(error.message); }
     finally { setSubmittingBooking(false); }
@@ -189,24 +209,28 @@ function App() {
       </section>
 
       <section className="sessions section" id="sessions"><div className="wrap"><div className="sessions-heading"><div><div className="section-label">{t('waysWork')} <span>↘</span></div><h2>{t('placeBegin')} <em>{t('begin')}</em></h2></div><p>{t('sessionsIntro')}</p></div>
-        <div className="offerings">{offerings.map(({ number, title, titleKey, type, typeKey, copy, copyKey, duration, price, icon: Icon }) => <article className="offering" key={number}><div className="offering-top"><span>{number}</span><Icon size={19} strokeWidth={1.5} /></div><div className="offering-type">{t(typeKey)}</div><h3>{t(titleKey)}</h3><p>{t(copyKey)}</p><div className="offering-bottom"><span>{duration} <i /> {price}</span><button aria-label={t('bookingService', { service: t(titleKey) })} onClick={() => openBooking(title)}><ArrowUpRight size={18} /></button></div></article>)}</div>
+        <div className="offerings">{offerings.map(({ number, title, titleKey, type, typeKey, copy, copyKey, duration, price: rateLabel, priceNote, myanmarPrice, icon: Icon }) => <article className="offering" key={number}><div className="offering-top"><span>{number}</span><Icon size={19} strokeWidth={1.5} /></div><div className="offering-type">{t(typeKey)}</div><h3>{t(titleKey)}</h3><p>{t(copyKey)}</p><div className="offering-bottom"><div className="offering-rate"><span>{duration}</span><b>{rateLabel}</b>{priceNote && <small>{priceNote}</small>}{myanmarPrice && <small>{myanmarPrice}</small>}</div><button aria-label={t('bookingService', { service: t(titleKey) })} onClick={() => openBooking(title)}><ArrowUpRight size={18} /></button></div></article>)}</div>
       </div></section>
 
-      {upcomingEvents.length > 0 && <section className="public-events section"><div className="wrap"><div className="section-label">{t('gather')} <span>↘</span></div><h2>{t('upcoming')} <em>{t('events')}</em></h2><div className="public-event-grid">{upcomingEvents.map((item) => <article className="public-event-card" key={item.id}><span className="event-date">{formatEventDate(item.starts_at)}</span><h3>{item.title}</h3>{item.location && <p className="event-location">{item.location}</p>}{item.description && <p>{item.description}</p>}<button className="text-link" onClick={() => openBooking(offerings[2].title)}>{t('askEvent')} <ArrowRight size={15} /></button></article>)}</div></div></section>}
+      {upcomingEvents.length > 0 && <section className="public-events section"><div className="wrap"><div className="section-label">{t('gather')} <span>↘</span></div><h2>{t('upcoming')} <em>{t('events')}</em></h2><div className="public-event-grid">{upcomingEvents.map((item) => <article className="public-event-card" key={item.id}><span className="event-date">{formatEventDate(item.starts_at)}</span><h3>{item.title}</h3>{item.location && <p className="event-location">{item.location}</p>}{item.description && <p>{item.description}</p>}<button className="text-link" onClick={() => openBooking(offerings[3].title)}>{t('askEvent')} <ArrowRight size={15} /></button></article>)}</div></div></section>}
 
       <section className="quote-section wrap" id="about-may"><div className="quote-mark">“</div><div><div className="section-label">{t('quoteLabel')}</div><blockquote>{t('quote')}</blockquote><div className="quote-author"><span className="may-avatar">m.</span><span><b>May</b><small>{t('therapist')}</small></span></div></div><div className="quote-flower">✳</div></section>
 
-      <section className="cta-section"><div className="cta-orb orb-one" /><div className="cta-orb orb-two" /><div className="cta-inner"><div className="eyebrow light"><span className="eyebrow-dot" /> {t('ready')}</div><h2>{t('startHere')}<br /><em>{t('here')}</em></h2><p>{t('startText')}</p><button className="button button-light" onClick={() => openBooking(offerings[2].title)}>{t('firstChat')} <ArrowRight size={17} /></button></div><span className="cta-spark">✳</span></section>
+      <section className="cta-section"><div className="cta-orb orb-one" /><div className="cta-orb orb-two" /><div className="cta-inner"><div className="eyebrow light"><span className="eyebrow-dot" /> {t('ready')}</div><h2>{t('startHere')}<br /><em>{t('here')}</em></h2><p>{t('startText')}</p><button className="button button-light" onClick={() => openBooking(offerings[3].title)}>{t('firstChat')} <ArrowRight size={17} /></button></div><span className="cta-spark">✳</span></section>
     </main>
 
     <footer className="footer wrap"><a className="brand" href="#home"><span className="brand-mark">w.</span><span>way to live</span></a><span className="footer-note">{t('footerNote')}</span><div className="footer-socials"><a href="https://www.facebook.com/thewaytolive8" target="_blank" rel="noreferrer" aria-label="Way to Live on Facebook"><Facebook /></a><a href="https://www.instagram.com/thewaytolive8/" target="_blank" rel="noreferrer" aria-label="Way to Live on Instagram"><Instagram /></a><a href="https://www.youtube.com/@TheWayToLive-88" target="_blank" rel="noreferrer" aria-label="Way to Live on YouTube"><Youtube /></a><a href="https://www.tiktok.com/@thewaytolivebymay?lang=en" target="_blank" rel="noreferrer" aria-label="Way to Live on TikTok"><Music2 /></a></div><span className="copyright">{t('copyright')}</span><a className="dashboard-link" href="/admin">{t('dashboard')}</a></footer>
 
     {booking && <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setBooking(false); }}><section className="booking-modal" role="dialog" aria-modal="true" aria-labelledby="booking-title"><button className="modal-close" aria-label={t('closeBooking')} onClick={() => setBooking(false)}><X size={20} /></button>{confirmed ? <div className="confirmation"><span className="confirm-icon"><Check size={25} /></span><div className="eyebrow">{t('firstStep')}</div><h2>{t('thanks')}<br /><em>{t('reaching')}</em></h2><p>{t('confirmation')}</p><button className="button button-dark" onClick={() => setBooking(false)}>{t('backHome')} <ArrowRight size={17} /></button></div> : <><div className="eyebrow"><span className="eyebrow-dot" /> {t('goodStart')}</div><h2 id="booking-title">{t('bookingTitle')}</h2><p className="modal-intro">{t('modalIntro')}</p><form onSubmit={submitBooking}>
       <label>{t('yourName')}<input required name="name" placeholder={t('namePlaceholder')} autoComplete="name" /></label><label>{t('email')}<input required type="email" name="email" placeholder="you@example.com" autoComplete="email" /></label>
+      <label>{t('country')}<select name="country" value={country} onChange={(e) => { setCountry(e.target.value); setSessionFormat('Online'); setBookingTime(''); }}><option value="Thailand">{t('thailand')}</option><option value="Myanmar">{t('myanmar')}</option></select></label>
       <label>{t('preferredDate')}<input required name="date" type="date" min={businessToday()} value={bookingDate} onChange={(e) => { setBookingDate(e.target.value); setBookingTime(''); }} /></label>
-      <div className="form-row"><label>{t('availableTime')}<select required name="time" value={bookingTime} disabled={!bookingDate || availabilityLoading || availableTimes.length === 0} onChange={(e) => setBookingTime(e.target.value)}><option value="">{!bookingDate ? t('chooseDate') : availabilityLoading ? t('checking') : availableTimes.length ? t('chooseTime') : t('noTimes')}</option>{availableTimes.map(slot => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select>{bookingDate && <small className="availability-hint">{availabilityError || (availabilityLoading ? t('checkingCalendar') : availableTimes.length ? t('liveAvailability') : t('noTimesHint'))}</small>}</label><label>{t('sessionFormat')}<select name="format" value={sessionFormat} onChange={(e) => setSessionFormat(e.target.value)}><option value="Online">{t('online')}</option><option value="In-person">{t('inPerson')}</option></select></label></div>
+      <label>{t('availableTime')}<select required name="time" value={bookingTime} disabled={!bookingDate || availabilityLoading || availableTimes.length === 0} onChange={(e) => setBookingTime(e.target.value)}><option value="">{!bookingDate ? t('chooseDate') : availabilityLoading ? t('checking') : availableTimes.length ? t('chooseTime') : t('noTimes')}</option>{availableTimes.map(slot => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select>{bookingDate && <small className="availability-hint">{availabilityError || (availabilityLoading ? t('checkingCalendar') : availableTimes.length ? t('liveAvailability') : t('noTimesHint'))}</small>}</label>
+      {onlineOnly ? <input type="hidden" name="format" value="Online" /> : <label>{t('sessionFormat')}<select name="format" value={sessionFormat} onChange={(e) => { setSessionFormat(e.target.value); setBookingTime(''); }}><option value="Online">{t('online')}</option><option value="In-person">{t('inPerson')}</option></select></label>}
       {sessionFormat === 'In-person' && <p className="inperson-note">{t('inPersonNote')}</p>}
-      <label>{t('session')}<select name="service" value={selected} onChange={(e) => setSelected(e.target.value)}>{offerings.map(o => <option key={o.title} value={o.title}>{t(o.titleKey)}</option>)}</select></label>
+      <label>{t('session')}<select name="service" value={selected} onChange={(e) => { setSelected(e.target.value); setBookingTime(''); if (e.target.value === 'The first conversation') setSessionFormat('Online'); }}>{offerings.map(o => { const optionFormat = country === 'Myanmar' || o.title === 'The first conversation' ? 'Online' : sessionFormat; const optionPrice = selectedPrice(o.title, country, optionFormat); const priceLabel = optionPrice.amount ? moneyLabel(optionPrice.amount, optionPrice.currency) : t('free'); return <option key={o.title} value={o.title}>{t(o.titleKey)} · {o.duration} · {priceLabel}{o.title === 'Breathwork + meditation (group, up to 5 people)' ? ` (${t('groupPriceNote')})` : ''}</option>; })}</select></label>
+      {selected === 'Breathwork + meditation (group, up to 5 people)' ? <label>{t('groupSize')}<select name="participantCount" value={participantCount} onChange={(e) => setParticipantCount(e.target.value)}>{[3, 4, 5].map(count => <option key={count} value={count}>{count} {t('people')}</option>)}</select></label> : <input type="hidden" name="participantCount" value="1" />}
+      <p className="booking-price">{t('sessionPrice')}: <b>{price.amount ? moneyLabel(price.amount, price.currency) : t('free')}</b>{selected === 'Breathwork + meditation (group, up to 5 people)' && <small>{t('groupPriceNote')}</small>}{country === 'Myanmar' && <small>{t('myanmarOnlineOnly')}</small>}</p>
       <label>{t('anythingKnow')} <span className="optional">{t('optional')}</span><textarea name="note" rows="3" placeholder={t('notePlaceholder')} /></label>
       {bookingError && <p className="booking-error" role="alert">{bookingError}</p>}<button className="button button-dark submit-button" type="submit" disabled={submittingBooking}>{submittingBooking ? t('sending') : t('sendRequest')} {!submittingBooking && <ArrowRight size={17} />}</button><small className="privacy-note">{t('privacy')}</small>
     </form></>}</section></div>}

@@ -34,11 +34,24 @@ const SESSION_COOKIE = 'waytolive_admin';
 const sessions = new Map();
 const oauthStates = new Map();
 const loginAttempts = new Map();
-const prices = {
-  'One-to-one counselling': 9000,
-  'Guided meditation': 4500,
-  'The first conversation': 0,
+const services = {
+  'One-to-one counselling': 60,
+  'Breathwork + meditation (private)': 90,
+  'Breathwork + meditation (group, up to 5 people)': 90,
+  'The first conversation': 20,
 };
+function pricingFor(country, service, format) {
+  const onlineOnly = country === 'Myanmar' || service === 'The first conversation';
+  if (!['Thailand', 'Myanmar'].includes(country) || !Object.hasOwn(services, service) || !['Online', 'In-person'].includes(format) || (onlineOnly && format !== 'Online')) return null;
+  if (country === 'Myanmar' && service === 'One-to-one counselling') return { priceCents: 3000000, currency: 'MMK' };
+  const rates = {
+    'One-to-one counselling': { Online: 30000, 'In-person': 50000 },
+    'Breathwork + meditation (private)': { Online: 50000, 'In-person': 70000 },
+    'Breathwork + meditation (group, up to 5 people)': { Online: 100000, 'In-person': 150000 },
+    'The first conversation': { Online: 0 },
+  };
+  return { priceCents: rates[service][format], currency: 'THB' };
+}
 const weeklySlots = {
   0: [],
   1: ['09:00', '11:00', '14:00', '16:00'],
@@ -68,6 +81,9 @@ db.exec(`
     note TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','confirmed','completed','cancelled')),
     price_cents INTEGER NOT NULL DEFAULT 0,
+    country TEXT NOT NULL DEFAULT 'Thailand',
+    currency TEXT NOT NULL DEFAULT 'USD',
+    participant_count INTEGER NOT NULL DEFAULT 1,
     payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK(payment_status IN ('unpaid','paid')),
     paid_at TEXT,
     calendar_event_id TEXT,
@@ -113,6 +129,10 @@ db.exec(`
     last_error TEXT
   );
 `);
+const bookingColumns = new Set(db.prepare('PRAGMA table_info(bookings)').all().map((column) => column.name));
+if (!bookingColumns.has('country')) db.exec("ALTER TABLE bookings ADD COLUMN country TEXT NOT NULL DEFAULT 'Thailand'");
+if (!bookingColumns.has('currency')) db.exec("ALTER TABLE bookings ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD'");
+if (!bookingColumns.has('participant_count')) db.exec('ALTER TABLE bookings ADD COLUMN participant_count INTEGER NOT NULL DEFAULT 1');
 
 function todayLocalISO() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -217,9 +237,7 @@ function addMinutes(date, time, minutes) {
   return new Date(start.getTime() + minutes * 60000);
 }
 function durationFor(service) {
-  if (service === 'Guided meditation') return 30;
-  if (service === 'The first conversation') return 20;
-  return 50;
+  return services[service] || 60;
 }
 function googleReady() { return Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET); }
 function googleTokenRow() { return db.prepare('SELECT * FROM google_tokens WHERE id=1').get(); }
@@ -339,6 +357,9 @@ async function sendBookingNotification(bookingId) {
       `Date: ${dateLabel}`,
       `Time: ${timeLabel} (${TZ})`,
       `Format: ${notification.format}`,
+      `Country: ${notification.country}`,
+      `Participants: ${notification.participant_count}`,
+      `Price: ${notification.price_cents / 100} ${notification.currency}`,
       `Booking ID: ${bookingId}`,
       '', 'Open the Way to Live dashboard to review the request and the client note.',
     ].join('\n');
@@ -385,7 +406,7 @@ async function route(req, res) {
     const date = url.searchParams.get('date');
     if (!safeDate(date)) return fail(res, 400, 'Choose a valid date.');
     const service = url.searchParams.get('service') || 'One-to-one counselling';
-    if (!Object.hasOwn(prices, service)) return fail(res, 400, 'Choose a valid session.');
+    if (!Object.hasOwn(services, service)) return fail(res, 400, 'Choose a valid session.');
     let busy;
     try { busy = await busyIntervals(date); } catch (error) { return fail(res, 503, error.message); }
     const rows = db.prepare('SELECT time FROM availability WHERE date=? AND enabled=1 ORDER BY time').all(date);
@@ -409,11 +430,15 @@ async function route(req, res) {
     const time = data.time;
     const format = data.format;
     const service = data.service;
+    const country = data.country || 'Thailand';
+    const participantCount = Number(data.participantCount || 1);
     const note = String(data.note || '').trim();
     if (name.length < 2 || name.length > 100) return fail(res, 400, 'Enter a name between 2 and 100 characters.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return fail(res, 400, 'Enter a valid email address.');
     if (!safeDate(date) || date < todayLocalISO() || !safeTime(time)) return fail(res, 400, 'Choose a valid future date and time.');
-    if (!['Online', 'In-person'].includes(format) || !Object.hasOwn(prices, service)) return fail(res, 400, 'Choose a valid session and format.');
+    const pricing = pricingFor(country, service, format);
+    if (!pricing) return fail(res, 400, 'Choose a valid session, country, and available format.');
+    if ((service === 'Breathwork + meditation (group, up to 5 people)' && (!Number.isInteger(participantCount) || participantCount < 3 || participantCount > 5)) || (service !== 'Breathwork + meditation (group, up to 5 people)' && participantCount !== 1)) return fail(res, 400, 'Choose a valid group size.');
     if (addMinutes(date, time, 0).getTime() <= Date.now()) return fail(res, 400, 'Choose a future session time.');
     if (note.length > 3000) return fail(res, 400, 'Please keep your note under 3,000 characters.');
     const available = db.prepare('SELECT id FROM availability WHERE date=? AND time=? AND enabled=1').get(date, time);
@@ -425,8 +450,8 @@ async function route(req, res) {
     let id;
     try {
       db.exec('BEGIN IMMEDIATE');
-      const result = db.prepare(`INSERT INTO bookings(name,email,date,time,format,service,note,price_cents,calendar_sync_status)
-        VALUES(?,?,?,?,?,?,?,?,?)`).run(name, email, date, time, format, service, note, prices[service], busy ? 'pending_sync' : 'not_connected');
+      const result = db.prepare(`INSERT INTO bookings(name,email,date,time,format,service,note,price_cents,country,currency,participant_count,calendar_sync_status)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(name, email, date, time, format, service, note, pricing.priceCents, country, pricing.currency, participantCount, busy ? 'pending_sync' : 'not_connected');
       id = Number(result.lastInsertRowid);
       db.prepare('INSERT INTO booking_notifications(booking_id) VALUES(?)').run(id);
       db.exec('COMMIT');
@@ -497,10 +522,10 @@ async function route(req, res) {
     if (req.method === 'GET' && pathname === '/api/admin/summary') {
       const month = parseMonth(url.searchParams.get('month'));
       if (!month) return fail(res, 400, 'Choose a valid month.');
-      const sales = db.prepare("SELECT COALESCE(SUM(price_cents),0) AS cents,COUNT(*) AS count FROM bookings WHERE payment_status='paid' AND paid_at>=? AND paid_at<?").get(`${month.start}T00:00:00.000Z`, `${month.end}T00:00:00.000Z`);
       const pending = db.prepare("SELECT COUNT(*) AS count FROM bookings WHERE status='pending'").get().count;
       const upcoming = db.prepare('SELECT COUNT(*) AS count FROM events WHERE is_published=1 AND starts_at>=?').get(new Date().toISOString()).count;
-      return send(res, 200, { salesCents: sales.cents, paidCount: sales.count, pendingCount: pending, upcomingEvents: upcoming, currency: 'USD' });
+      const sales = db.prepare("SELECT currency,COALESCE(SUM(price_cents),0) AS cents,COUNT(*) AS count FROM bookings WHERE payment_status='paid' AND paid_at>=? AND paid_at<? GROUP BY currency").all(`${month.start}T00:00:00.000Z`, `${month.end}T00:00:00.000Z`);
+      return send(res, 200, { salesByCurrency: Object.fromEntries(sales.map((row) => [row.currency, row.cents])), paidCount: sales.reduce((sum, row) => sum + row.count, 0), pendingCount: pending, upcomingEvents: upcoming });
     }
     if (req.method === 'GET' && pathname === '/api/admin/bookings') {
       const month = url.searchParams.get('month');

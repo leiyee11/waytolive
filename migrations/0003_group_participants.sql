@@ -1,0 +1,1 @@
+ALTER TABLE bookings ADD COLUMN participant_count INTEGER NOT NULL DEFAULT 1;

@@ -97,6 +97,13 @@ html[lang="my"] .confirmation p{font-size:.85em}
 .offering-type{font-size:9px}
 .offering p{font-size:12px}
 .offering-bottom{font-size:11px}
+.offerings{grid-template-columns:repeat(2,minmax(0,1fr))}
+.offering-bottom{align-items:flex-end}
+.offering-rate{display:grid;gap:4px;line-height:1.45}
+.offering-rate span{color:#777d71}
+.offering-rate b{font-size:13px;font-weight:600;color:#394a3e}
+.offering-rate small{font-size:10px;color:#777d71}
+@media(max-width:640px){.offerings{grid-template-columns:1fr}}
 .quote-section blockquote{font-size:38px}
 .quote-author b{font-size:12px}
 .quote-author small{font-size:8px}
