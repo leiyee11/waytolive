@@ -118,7 +118,7 @@ function App() {
   }, [sliderPaused]);
 
   useEffect(() => {
-    const targets = document.querySelectorAll('.hero-copy,.photo-banner,.approach,.portfolio-heading,.portfolio-grid > .portfolio-card,.certificates-heading,.certificate-card,.sessions-heading,.offering,.quote-section,.cta-section,.footer');
+    const targets = document.querySelectorAll('.hero-copy,.photo-banner,.portfolio-heading,.portfolio-grid > .portfolio-card,.certificates-heading,.certificate-card,.sessions-heading,.offering,.quote-section,.cta-section,.footer');
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) {
       targets.forEach((target) => target.classList.add('is-visible'));
       return;
@@ -179,7 +179,7 @@ function App() {
           <div className="eyebrow"><span className="eyebrow-dot" /> {t('eyebrow')}</div>
           <h1>{t('heroTitle')}<br /><em>{t('heroYourself')}</em></h1>
           <p className="hero-lede">{t('heroLead')}</p>
-          <div className="hero-actions"><button className="button button-dark" onClick={() => openBooking()}>{t('findSpace')} <ArrowRight size={17} /></button><a className="text-link" href="#approach">{t('approachLink')} <ArrowDown size={14} /></a></div>
+          <div className="hero-actions"><button className="button button-dark" onClick={() => openBooking()}>{t('findSpace')} <ArrowRight size={17} /></button><a className="text-link" href="#way-to-live">{t('approachLink')} <ArrowDown size={14} /></a></div>
           <div className="hero-note"><div className="avatar-stack"><span>✳</span><span>✳</span><span>✳</span></div><span>{t('oneStep')}<br /><b>{t('atPace')}</b></span></div>
         </div>
         <div className="hero-art photo-banner" role="region" aria-label={t('slideRegion')} aria-roledescription="carousel" onMouseEnter={() => setSliderPaused(true)} onMouseLeave={() => setSliderPaused(false)} onFocus={() => setSliderPaused(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSliderPaused(false); }}>
@@ -189,12 +189,6 @@ function App() {
       </section>
 
       <section className="ticker" aria-label={t('tickerLabel')}><div className="ticker-track"><span>{t('ticker1')}</span><b>✳</b><span>{t('ticker2')}</span><b>✳</b><span>{t('ticker3')}</span><b>✳</b><span>{t('ticker1')}</span></div></section>
-
-      <section className="approach section wrap" id="approach">
-        <div className="section-label">{t('gentleWay')} <span>↘</span></div>
-        <div className="approach-content"><h2>{t('carryTitle')}<br /><em>{t('carryEm')}</em></h2><div className="approach-text"><p>{t('carryText1')}</p><p>{t('carryText2')}</p><a className="text-link underline-link" href="#about">{t('knowMay')} <ArrowRight size={15} /></a></div></div>
-        <div className="values-row"><div><span>01</span><b>{t('value1')}</b><small>{t('value1sub')}</small></div><div><span>02</span><b>{t('value2')}</b><small>{t('value2sub')}</small></div><div><span>03</span><b>{t('value3')}</b><small>{t('value3sub')}</small></div></div>
-      </section>
 
       <section className="portfolio section" id="way-to-live">
         <div className="wrap"><div className="portfolio-heading"><div><div className="section-label">{t('personBehind')} <span>↘</span></div><h2>{t('aboutWay')} <em>{t('practice')}</em></h2></div><p>{t('practiceIntro')}</p></div>
