@@ -462,6 +462,11 @@ html::-webkit-scrollbar-thumb:hover{background:#d08e5f}
 .booking-time-options button:hover,.booking-time-options button.selected{background:#FF9346;border-color:#FF9346;color:#fff}
 .booking-details-panel{display:grid;gap:15px}
 .booking-details-panel .booking-panel-heading{margin:0 0 2px}
+.booking-selected-slots{display:grid;gap:7px;list-style:none;padding:0;margin:0}
+.booking-selected-slots li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 10px 9px 12px;border:1px solid #f6d6bd;border-radius:9px;background:#fff0e5;color:#765137;font-size:12px}
+.booking-selected-slots button{width:30px;height:30px;flex:0 0 auto;display:grid;place-items:center;border:1px solid #efcfb5;border-radius:50%;background:#fffaf7;color:#a94d0a}
+.booking-selected-slots button:hover{background:#ffead9}
+.booking-selected-slots button:focus-visible{outline:2px solid #a94d0a;outline-offset:2px}
 .booking-details-panel label{display:grid;gap:7px;color:#765c49;font-size:11px}
 .booking-details-panel input,.booking-details-panel select,.booking-details-panel textarea{width:100%;min-height:44px;border:1px solid #ead6c5;border-radius:8px;background-color:#fffdfb;padding:10px 12px;color:#493a30;font:13px 'DM Sans',sans-serif;outline:none}
 .booking-details-panel select{appearance:none;-webkit-appearance:none;padding-right:44px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a94d0a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 16px center;background-size:16px}
@@ -478,5 +483,5 @@ html::-webkit-scrollbar-thumb:hover{background:#d08e5f}
 .booking-page-confirmation{width:min(600px,100%);min-height:calc(100vh - 84px);margin:0 auto;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:35px 20px}
 .booking-page-confirmation p{max-width:480px;color:#77736e;font-size:14px;line-height:1.8}
 .booking-page-confirmation .button{margin-top:12px}
-@media(max-width:820px){.booking-page-form{grid-template-columns:1fr}.booking-details-panel{grid-template-columns:1fr 1fr}.booking-details-panel .booking-panel-heading,.booking-details-panel .booking-price,.booking-details-panel .inperson-note,.booking-details-panel .submit-button,.booking-details-panel .privacy-note,.booking-details-panel .booking-error{grid-column:1/-1}}
+@media(max-width:820px){.booking-page-form{grid-template-columns:1fr}.booking-details-panel{grid-template-columns:1fr 1fr}.booking-details-panel .booking-selected-slots,.booking-details-panel .booking-panel-heading,.booking-details-panel .booking-price,.booking-details-panel .inperson-note,.booking-details-panel .submit-button,.booking-details-panel .privacy-note,.booking-details-panel .booking-error{grid-column:1/-1}}
 @media(max-width:560px){.booking-page{padding:0 15px 28px}.booking-page-header{height:68px}.booking-page-step{display:none}.booking-page-intro{padding:28px 0 20px}.booking-page-intro h1{font-size:38px}.booking-calendar-panel,.booking-details-panel{padding:17px;border-radius:13px}.booking-calendar-grid{gap:3px}.calendar-day{border-radius:8px;font-size:12px}.calendar-day i{bottom:4px}.booking-details-panel{grid-template-columns:1fr}.booking-details-panel .booking-panel-heading,.booking-details-panel .booking-price,.booking-details-panel .inperson-note,.booking-details-panel .submit-button,.booking-details-panel .privacy-note,.booking-details-panel .booking-error{grid-column:auto}}
