@@ -360,7 +360,7 @@ html::-webkit-scrollbar-thumb:hover{background:#d08e5f}
 .certificate-card{margin:0;min-width:0;min-height:164px;padding:20px;display:grid;align-content:space-between;gap:12px;background:#fffaf6;border:1px solid #f0e3d9;border-radius:15px}
 .certificate-card b{font-size:15px;line-height:1.35;font-weight:600;color:#674731}
 .certificate-card span{font-size:11px;color:#858080}
-.certificate-card .certificate-organization{color:#a76b45}
+.certificate-card .certificate-organization{color:#a76230}
 @media(max-width:900px){.certificates-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.certificates-heading{display:block;margin-top:48px;padding-top:27px}.certificates-heading h3{font-size:30px}.certificates-heading>p{margin-top:11px;font-size:12px}.certificates-grid{grid-template-columns:1fr;gap:13px}.certificate-card{min-height:0;padding:17px}.certificate-card b{font-size:14px}}
 .photo-banner{display:block;position:relative;padding:0;background:#f2e5dc;overflow:hidden}
