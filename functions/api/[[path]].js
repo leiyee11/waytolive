@@ -327,41 +327,58 @@ async function route(context) {
     try { data = await readBody(request); } catch (error) { return fail(error.message, error.status || 400); }
     const name = String(data.name || '').trim();
     const email = String(data.email || '').trim();
-    const { date, time, format, service } = data;
+    const { format, service } = data;
     const country = data.country || 'Thailand';
     const participantCount = Number(data.participantCount || 1);
     const note = String(data.note || '').trim();
+    const slots = Array.isArray(data.slots)
+      ? data.slots.map(({ date, time }) => ({ date: String(date || ''), time: String(time || '') }))
+      : [{ date: String(data.date || ''), time: String(data.time || '') }];
     if (name.length < 2 || name.length > 100) return fail('Enter a name between 2 and 100 characters.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return fail('Enter a valid email address.');
-    if (!safeDate(date) || date < todayLocalISO(env) || !safeTime(time)) return fail('Choose a valid future date and time.');
     const pricing = pricingFor(country, service, format);
     if (!pricing) return fail('Choose a valid session, country, and available format.');
     if ((service === 'Breathwork + meditation (group, up to 5 people)' && (!Number.isInteger(participantCount) || participantCount < 3 || participantCount > 5)) || (service !== 'Breathwork + meditation (group, up to 5 people)' && participantCount !== 1)) return fail('Choose a valid group size.');
-    if (addMinutes(date, time, 0, env).getTime() <= Date.now()) return fail('Choose a future session time.');
     if (note.length > 3000) return fail('Please keep your note under 3,000 characters.');
-    const busy = await busyIntervals(db, env, date).catch((error) => { throw Object.assign(error, { status: 503 }); });
-    if (busy && overlapsBusy(date, time, service, busy, env)) return fail('That time is busy on May’s calendar. Please choose another slot.', 409);
-    const { start, end } = durationColumns(date, time, service, env);
-    const result = await db.prepare(`INSERT INTO bookings(name,email,date,time,format,service,note,status,price_cents,country,currency,participant_count,payment_status,
+    if (!slots.length || slots.length > 20 || slots.some(({ date, time }) => !safeDate(date) || date < todayLocalISO(env) || !safeTime(time))) return fail('Choose valid future dates and times.');
+    if (new Set(slots.map(({ date, time }) => `${date}T${time}`)).size !== slots.length) return fail('Choose each time only once.');
+    if (slots.some(({ date, time }) => addMinutes(date, time, 0, env).getTime() <= Date.now())) return fail('Choose future session times.');
+    const busyByDate = new Map();
+    const preparedSlots = [];
+    for (const slot of slots) {
+      const { date, time } = slot;
+      const available = await db.prepare('SELECT id FROM availability WHERE date=? AND time=? AND enabled=1').bind(date, time).first();
+      if (!available || await overlapsBooking(db, date, time, service, env)) return fail('That time is no longer available. Please choose another slot.', 409);
+      let busy = busyByDate.get(date);
+      if (busy === undefined) {
+        busy = await busyIntervals(db, env, date).catch((error) => { throw Object.assign(error, { status: 503 }); });
+        busyByDate.set(date, busy);
+      }
+      if (busy && overlapsBusy(date, time, service, busy, env)) return fail('That time is busy on May’s calendar. Please choose another slot.', 409);
+      const { start, end } = durationColumns(date, time, service, env);
+      if (preparedSlots.some((other) => other.date === date && other.start < end && other.end > start)) return fail('Selected times cannot overlap. Please choose another slot.', 409);
+      preparedSlots.push({ date, time, start, end, busy });
+    }
+    const results = await db.batch(preparedSlots.map((slot) => db.prepare(`INSERT INTO bookings(name,email,date,time,format,service,note,status,price_cents,country,currency,participant_count,payment_status,
       starts_at_ms,ends_at_ms,calendar_sync_status)
       SELECT ?,?,?,?,?,?,?,'pending',?,?,?,?,'unpaid',?,?,'not_connected'
       WHERE EXISTS(SELECT 1 FROM availability WHERE date=? AND time=? AND enabled=1)
       AND NOT EXISTS(SELECT 1 FROM bookings WHERE status IN ('pending','confirmed') AND starts_at_ms < ? AND ends_at_ms > ?)`)
-      .bind(name, email, date, time, format, service, note, pricing.priceCents, country, pricing.currency, participantCount, start, end, date, time, end, start).run();
-    if (result.meta.changes !== 1) return fail('That time is no longer available. Please choose another slot.', 409);
-    const id = Number(result.meta.last_row_id);
-    const booking = { id, name, email, date, time, format, service, country, currency: pricing.currency, participant_count: participantCount, note, status: 'pending', price_cents: pricing.priceCents, calendar_event_id: null };
-    if (context.waitUntil) context.waitUntil(sendBookingEmail(env, booking).catch((error) => console.error('Booking email failed', id, error.message)));
-    try {
-      if (busy) {
+      .bind(name, email, slot.date, slot.time, format, service, note, pricing.priceCents, country, pricing.currency, participantCount, slot.start, slot.end, slot.date, slot.time, slot.end, slot.start)));
+    if (results.some((result) => result.meta.changes !== 1)) return fail('That time is no longer available. Please choose another slot.', 409);
+    const createdBookings = preparedSlots.map((slot, index) => ({ id: Number(results[index].meta.last_row_id), name, email, date: slot.date, time: slot.time, format, service, country, currency: pricing.currency, participant_count: participantCount, note, status: 'pending', price_cents: pricing.priceCents, calendar_event_id: null, busy: slot.busy }));
+    for (const booking of createdBookings) {
+      if (context.waitUntil) context.waitUntil(sendBookingEmail(env, booking).catch((error) => console.error('Booking email failed', booking.id, error.message)));
+      if (!booking.busy) continue;
+      try {
         const eventId = await addCalendarHold(db, env, booking);
-        await db.prepare("UPDATE bookings SET calendar_event_id=?,calendar_sync_status='synced' WHERE id=?").bind(eventId, id).run();
+        await db.prepare("UPDATE bookings SET calendar_event_id=?,calendar_sync_status='synced' WHERE id=?").bind(eventId, booking.id).run();
+      } catch (error) {
+        await db.prepare("UPDATE bookings SET calendar_sync_status='failed' WHERE id=?").bind(booking.id).run();
+        console.error('Calendar hold sync failed', booking.id, error.message);
       }
-    } catch (error) {
-      await db.prepare("UPDATE bookings SET calendar_sync_status='failed' WHERE id=?").bind(id).run();
-      console.error('Calendar hold sync failed for booking', id, error.message);
     }
-    return json({ id, status: 'pending', message: 'Your request has been sent. May will be in touch to confirm.' }, 201);
+    return json({ bookings: createdBookings.map(({ busy, ...booking }) => booking), message: 'Your requests have been sent. May will be in touch to confirm.' }, 201);
   }
 
   if (method === 'POST' && path === '/admin/login') {
