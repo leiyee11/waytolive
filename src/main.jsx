@@ -92,6 +92,7 @@ function App() {
   const availableTimes = bookingDate ? availabilityByDate[bookingDate] || [] : [];
   const onlineOnly = country === 'Myanmar' || selected === 'The first conversation';
   const price = selectedPrice(selected, country, sessionFormat);
+  const bookingTotal = price.amount * selectedSlots.length;
   const calendarCells = monthCalendar(visibleMonth);
   const [calendarYear, calendarMonthNumber] = visibleMonth.split('-').map(Number);
   const calendarMonthDate = new Date(Date.UTC(calendarYear, calendarMonthNumber - 1, 1));
@@ -135,6 +136,35 @@ function App() {
       .catch((error) => { if (error.name !== 'AbortError') setAvailabilityError(error.message); })
       .finally(() => { if (!controller.signal.aborted) setAvailabilityLoading(false); });
     return () => controller.abort();
+  }, [booking, visibleMonth, selected, country, sessionFormat]);
+
+  useEffect(() => {
+    if (!booking) return;
+    let active = true;
+    const refreshAvailability = () => {
+      const query = new URLSearchParams({ month: visibleMonth, service: selected, country, format: sessionFormat });
+      apiRequest(`/api/availability?${query}`)
+        .then((result) => {
+          if (!active) return;
+          const byDate = Object.fromEntries((result.days || []).map((day) => [day.date, day.slots]));
+          setAvailabilityByDate(byDate);
+          setSelectedSlots((current) => current.filter((slot) => (
+            slot.date.slice(0, 7) !== visibleMonth || (byDate[slot.date] || []).some((availableSlot) => availableSlot.value === slot.time)
+          )));
+          setAvailabilityError('');
+        })
+        .catch((error) => { if (active) setAvailabilityError(error.message); });
+    };
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') refreshAvailability(); };
+    const timer = window.setInterval(refreshAvailability, 10000);
+    window.addEventListener('focus', refreshAvailability);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshAvailability);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [booking, visibleMonth, selected, country, sessionFormat]);
 
   useEffect(() => {
@@ -306,7 +336,7 @@ function App() {
             {onlineOnly ? <input type="hidden" name="format" value="Online" /> : <label>{t('sessionFormat')}<select name="format" value={sessionFormat} onChange={(e) => setSessionFormat(e.target.value)}><option value="Online">{t('online')}</option><option value="In-person">{t('inPerson')}</option></select></label>}
             {sessionFormat === 'In-person' && <p className="inperson-note">{t('inPersonNote')}</p>}
             {selected === 'Breathwork + meditation (group, up to 5 people)' ? <label>{t('groupSize')}<select name="participantCount" value={participantCount} onChange={(e) => setParticipantCount(e.target.value)}>{[3, 4, 5].map(count => <option key={count} value={count}>{count} {t('people')}</option>)}</select></label> : <input type="hidden" name="participantCount" value="1" />}
-            <div className="booking-price">{t('sessionPrice')}: <b>{price.amount ? moneyLabel(price.amount, price.currency) : t('free')}</b>{selected === 'Breathwork + meditation (group, up to 5 people)' && <small>{t('groupPriceNote')}</small>}{country === 'Myanmar' && <small>{t('myanmarOnlineOnly')}</small>}</div>
+            <div className="booking-price"><span>{t('bookingTotal')}</span><b>{selectedSlots.length ? (price.amount ? moneyLabel(bookingTotal, price.currency) : t('free')) : t('selectTimeForTotal')}</b>{selectedSlots.length > 0 && <small>{t('totalBreakdown', { price: price.amount ? moneyLabel(price.amount, price.currency) : t('free'), count: selectedSlots.length })}</small>}{selected === 'Breathwork + meditation (group, up to 5 people)' && <small>{t('groupPriceNote')}</small>}{country === 'Myanmar' && <small>{t('myanmarOnlineOnly')}</small>}</div>
             <label>{t('yourName')}<input required name="name" placeholder={t('namePlaceholder')} autoComplete="name" /></label>
             <label>{t('email')}<input required type="email" name="email" placeholder="you@example.com" autoComplete="email" /></label>
             <label>{t('anythingKnow')} <span className="optional">{t('optional')}</span><textarea name="note" rows="3" placeholder={t('notePlaceholder')} /></label>
