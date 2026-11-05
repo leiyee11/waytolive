@@ -42,6 +42,13 @@ function safeDate(value) {
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
+function monthRange(value) {
+  if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return null;
+  const start = `${value}-01`;
+  const next = new Date(`${start}T00:00:00Z`);
+  next.setUTCMonth(next.getUTCMonth() + 1);
+  return { start, end: next.toISOString().slice(0, 10) };
+}
 function safeTime(value) {
   if (typeof value !== 'string' || !/^\d{2}:\d{2}$/.test(value)) return false;
   const [hour, minute] = value.split(':').map(Number);
@@ -183,6 +190,17 @@ async function busyIntervals(db, env, date) {
   });
   return result.calendars?.[calendarId]?.busy || [];
 }
+async function busyIntervalsRange(db, env, startDate, endDate) {
+  const token = await googleAccessToken(db, env);
+  if (!token) return null;
+  const start = addMinutes(startDate, '00:00', 0, env);
+  const end = addMinutes(endDate, '00:00', 0, env);
+  const calendarId = env.GOOGLE_CALENDAR_ID || 'primary';
+  const result = await calendarRequest('POST', 'https://www.googleapis.com/calendar/v3/freeBusy', token, {
+    timeMin: start.toISOString(), timeMax: end.toISOString(), timeZone: timezone(env), items: [{ id: calendarId }],
+  });
+  return result.calendars?.[calendarId]?.busy || [];
+}
 function overlapsBusy(date, time, service, busy, env) {
   const { start, end } = durationColumns(date, time, service, env);
   return busy.some((range) => Date.parse(range.start) < end && Date.parse(range.end) > start);
@@ -253,6 +271,32 @@ async function route(context) {
 
   if (method === 'GET' && path === '/availability') {
     const date = url.searchParams.get('date');
+    const month = url.searchParams.get('month');
+    if (month) {
+      const range = monthRange(month);
+      const service = url.searchParams.get('service') || 'One-to-one counselling';
+      const country = url.searchParams.get('country') || 'Thailand';
+      if (!range || !Object.hasOwn(SERVICES, service) || !['Thailand', 'Myanmar'].includes(country)) return fail('Choose a valid month, session, and country.');
+      try {
+        const [busy, slots, bookings, google] = await Promise.all([
+          busyIntervalsRange(db, env, range.start, range.end),
+          db.prepare('SELECT date,time FROM availability WHERE date>=? AND date<? AND enabled=1 ORDER BY date,time').bind(range.start, range.end).all(),
+          db.prepare("SELECT starts_at_ms,ends_at_ms FROM bookings WHERE date>=? AND date<? AND status IN ('pending','confirmed')").bind(range.start, range.end).all(),
+          db.prepare("SELECT key FROM settings WHERE key='google_calendar_token'").first(),
+        ]);
+        const days = new Map();
+        for (const slot of slots.results) {
+          const { start, end } = durationColumns(slot.date, slot.time, service, env);
+          const overlapsBooking = bookings.results.some((booking) => booking.starts_at_ms < end && booking.ends_at_ms > start);
+          const overlapsCalendar = busy && busy.some((rangeBusy) => Date.parse(rangeBusy.start) < end && Date.parse(rangeBusy.end) > start);
+          if (!overlapsBooking && !overlapsCalendar) {
+            if (!days.has(slot.date)) days.set(slot.date, []);
+            days.get(slot.date).push({ value: slot.time, label: labelTime(slot.time) });
+          }
+        }
+        return json({ month, days: [...days].map(([date, available]) => ({ date, slots: available })), googleConnected: Boolean(google) });
+      } catch (error) { return fail(error.message, 503); }
+    }
     if (!safeDate(date)) return fail('Choose a valid date.');
     const service = url.searchParams.get('service') || 'One-to-one counselling';
     const country = url.searchParams.get('country') || 'Thailand';

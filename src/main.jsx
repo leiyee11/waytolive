@@ -62,6 +62,12 @@ function formatEventDate(value) {
 function businessToday() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 }
+function monthCalendar(month) {
+  const [year, monthNumber] = month.split('-').map(Number);
+  const first = new Date(Date.UTC(year, monthNumber - 1, 1));
+  const count = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  return Array.from({ length: first.getUTCDay() + count }, (_, index) => index < first.getUTCDay() ? null : `${month}-${String(index - first.getUTCDay() + 1).padStart(2, '0')}`);
+}
 
 function App() {
   const { t, i18n } = useTranslation();
@@ -70,8 +76,9 @@ function App() {
   const [confirmed, setConfirmed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [bookingDate, setBookingDate] = useState('');
+  const [visibleMonth, setVisibleMonth] = useState(() => businessToday().slice(0, 7));
   const [bookingTime, setBookingTime] = useState('');
-  const [availableSlots, setAvailableSlots] = useState([]);
+  const [availabilityByDate, setAvailabilityByDate] = useState({});
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState('');
   const [bookingError, setBookingError] = useState('');
@@ -82,14 +89,27 @@ function App() {
   const [participantCount, setParticipantCount] = useState('3');
   const [activeSlide, setActiveSlide] = useState(0);
   const [sliderPaused, setSliderPaused] = useState(false);
-  const availableTimes = availableSlots;
+  const availableTimes = bookingDate ? availabilityByDate[bookingDate] || [] : [];
   const onlineOnly = country === 'Myanmar' || selected === 'The first conversation';
   const price = selectedPrice(selected, country, sessionFormat);
+  const calendarCells = monthCalendar(visibleMonth);
+  const [calendarYear, calendarMonthNumber] = visibleMonth.split('-').map(Number);
+  const calendarMonthDate = new Date(Date.UTC(calendarYear, calendarMonthNumber - 1, 1));
+  const calendarMonthLabel = new Intl.DateTimeFormat(i18n.language === 'my' ? 'my' : 'en', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(calendarMonthDate);
+  const weekdayLabels = Array.from({ length: 7 }, (_, index) => new Intl.DateTimeFormat(i18n.language === 'my' ? 'my' : 'en', { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2023, 0, 1 + index))));
+  const minimumMonth = businessToday().slice(0, 7);
 
   useEffect(() => {
     document.documentElement.lang = i18n.language === 'my' ? 'my' : 'en';
     localStorage.setItem('waytolive-language', i18n.language);
   }, [i18n.language]);
+
+  useEffect(() => {
+    if (!booking) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [booking]);
 
   function toggleLanguage() {
     i18n.changeLanguage(i18n.language === 'my' ? 'en' : 'my');
@@ -100,16 +120,20 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!bookingDate) { setAvailableSlots([]); setAvailabilityError(''); return; }
+    if (!booking) return;
     const controller = new AbortController();
-    setAvailableSlots([]); setAvailabilityError(''); setAvailabilityLoading(true);
-    const query = new URLSearchParams({ date: bookingDate, service: selected, country });
+    setAvailabilityByDate({}); setAvailabilityError(''); setAvailabilityLoading(true);
+    const query = new URLSearchParams({ month: visibleMonth, service: selected, country });
     apiRequest(`/api/availability?${query}`, { signal: controller.signal })
-      .then((result) => setAvailableSlots(result.slots || []))
+      .then((result) => {
+        const byDate = Object.fromEntries((result.days || []).map((day) => [day.date, day.slots]));
+        setAvailabilityByDate(byDate);
+        if (bookingTime && !(byDate[bookingDate] || []).some((slot) => slot.value === bookingTime)) setBookingTime('');
+      })
       .catch((error) => { if (error.name !== 'AbortError') setAvailabilityError(error.message); })
       .finally(() => { if (!controller.signal.aborted) setAvailabilityLoading(false); });
     return () => controller.abort();
-  }, [bookingDate, selected, country]);
+  }, [booking, visibleMonth, selected, country]);
 
   useEffect(() => {
     if (sliderPaused || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -146,15 +170,27 @@ function App() {
   }
 
   function openBooking(service = offerings[0].title) {
-    setSelected(service); setConfirmed(false); setBooking(true); setMenuOpen(false); setBookingDate(''); setBookingTime(''); setAvailableSlots([]); setBookingError(''); setSessionFormat('Online'); setCountry('Thailand'); setParticipantCount('3');
+    setSelected(service); setConfirmed(false); setBooking(true); setMenuOpen(false); setBookingDate(''); setBookingTime(''); setAvailabilityByDate({}); setVisibleMonth(businessToday().slice(0, 7)); setBookingError(''); setSessionFormat('Online'); setCountry('Thailand'); setParticipantCount('3');
+  }
+
+  function changeVisibleMonth(delta) {
+    const [year, month] = visibleMonth.split('-').map(Number);
+    const next = new Date(Date.UTC(year, month - 1 + delta, 1));
+    setVisibleMonth(`${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}`);
+    setBookingDate(''); setBookingTime('');
+  }
+
+  function selectBookingDate(date) {
+    setBookingDate(date); setBookingTime('');
   }
 
   async function submitBooking(event) {
     event.preventDefault();
+    if (!bookingDate || !bookingTime) { setBookingError('Choose an available date and time first.'); return; }
     const form = new FormData(event.currentTarget);
     setSubmittingBooking(true); setBookingError('');
     try {
-      const bookingData = Object.fromEntries(form.entries());
+      const bookingData = { ...Object.fromEntries(form.entries()), date: bookingDate, time: bookingTime };
       if (bookingData.service !== 'Breathwork + meditation (group, up to 5 people)') bookingData.participantCount = '1';
       await apiRequest('/api/bookings', { method: 'POST', body: JSON.stringify(bookingData) });
       setConfirmed(true);
@@ -169,7 +205,7 @@ function App() {
       <nav className={menuOpen ? 'nav-links open' : 'nav-links'}>
         <a href="#way-to-live" onClick={() => setMenuOpen(false)}>{t('navAbout')}</a><a href="#sessions" onClick={() => setMenuOpen(false)}>{t('navSessions')}</a><a href="#about" onClick={() => setMenuOpen(false)}>{t('navMay')}</a>
         <div className="nav-socials"><a href="https://www.facebook.com/thewaytolive8" target="_blank" rel="noreferrer" aria-label="Way to Live on Facebook"><Facebook /></a><a href="https://www.instagram.com/thewaytolive8/" target="_blank" rel="noreferrer" aria-label="Way to Live on Instagram"><Instagram /></a><a href="https://www.youtube.com/@TheWayToLive-88" target="_blank" rel="noreferrer" aria-label="Way to Live on YouTube"><Youtube /></a><a href="https://www.tiktok.com/@thewaytolivebymay?lang=en" target="_blank" rel="noreferrer" aria-label="Way to Live on TikTok"><Music2 /></a></div>
-        <button className="language-toggle" type="button" onClick={toggleLanguage} aria-label={`Change language to ${t('language')}`}>{t('language')}</button><button className="nav-cta" onClick={() => openBooking()}>{t('bookSession')} <ArrowUpRight size={15} /></button>
+        {/* <button className="language-toggle" type="button" onClick={toggleLanguage} aria-label={`Change language to ${t('language')}`}>{t('language')}</button> */}<button className="nav-cta" onClick={() => openBooking()}>{t('bookSession')} <ArrowUpRight size={15} /></button>
       </nav>
     </header>
 
@@ -215,19 +251,43 @@ function App() {
 
     <footer className="footer wrap"><a className="brand" href="#home"><span className="brand-mark">w.</span><span>way to live</span></a><span className="footer-note">{t('footerNote')}</span><div className="footer-socials"><a href="https://www.facebook.com/thewaytolive8" target="_blank" rel="noreferrer" aria-label="Way to Live on Facebook"><Facebook /></a><a href="https://www.instagram.com/thewaytolive8/" target="_blank" rel="noreferrer" aria-label="Way to Live on Instagram"><Instagram /></a><a href="https://www.youtube.com/@TheWayToLive-88" target="_blank" rel="noreferrer" aria-label="Way to Live on YouTube"><Youtube /></a><a href="https://www.tiktok.com/@thewaytolivebymay?lang=en" target="_blank" rel="noreferrer" aria-label="Way to Live on TikTok"><Music2 /></a></div><span className="copyright">{t('copyright')}</span><a className="dashboard-link" href="/admin">{t('dashboard')}</a></footer>
 
-    {booking && <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setBooking(false); }}><section className="booking-modal" role="dialog" aria-modal="true" aria-labelledby="booking-title"><button className="modal-close" aria-label={t('closeBooking')} onClick={() => setBooking(false)}><X size={20} /></button>{confirmed ? <div className="confirmation"><span className="confirm-icon"><Check size={25} /></span><div className="eyebrow">{t('firstStep')}</div><h2>{t('thanks')}<br /><em>{t('reaching')}</em></h2><p>{t('confirmation')}</p><button className="button button-dark" onClick={() => setBooking(false)}>{t('backHome')} <ArrowRight size={17} /></button></div> : <><div className="eyebrow"><span className="eyebrow-dot" /> {t('goodStart')}</div><h2 id="booking-title">{t('bookingTitle')}</h2><p className="modal-intro">{t('modalIntro')}</p><form onSubmit={submitBooking}>
-      <label>{t('yourName')}<input required name="name" placeholder={t('namePlaceholder')} autoComplete="name" /></label><label>{t('email')}<input required type="email" name="email" placeholder="you@example.com" autoComplete="email" /></label>
-      <label>{t('country')}<select name="country" value={country} onChange={(e) => { setCountry(e.target.value); setSessionFormat('Online'); setBookingTime(''); }}><option value="Thailand">{t('thailand')}</option><option value="Myanmar">{t('myanmar')}</option></select></label>
-      <label>{t('preferredDate')}<input required name="date" type="date" min={businessToday()} value={bookingDate} onChange={(e) => { setBookingDate(e.target.value); setBookingTime(''); }} /></label>
-      <label>{t('availableTime')}<select required name="time" value={bookingTime} disabled={!bookingDate || availabilityLoading || availableTimes.length === 0} onChange={(e) => setBookingTime(e.target.value)}><option value="">{!bookingDate ? t('chooseDate') : availabilityLoading ? t('checking') : availableTimes.length ? t('chooseTime') : t('noTimes')}</option>{availableTimes.map(slot => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select>{bookingDate && <small className="availability-hint">{availabilityError || (availabilityLoading ? t('checkingCalendar') : availableTimes.length ? t('liveAvailability') : t('noTimesHint'))}</small>}</label>
-      {onlineOnly ? <input type="hidden" name="format" value="Online" /> : <label>{t('sessionFormat')}<select name="format" value={sessionFormat} onChange={(e) => { setSessionFormat(e.target.value); setBookingTime(''); }}><option value="Online">{t('online')}</option><option value="In-person">{t('inPerson')}</option></select></label>}
-      {sessionFormat === 'In-person' && <p className="inperson-note">{t('inPersonNote')}</p>}
-      <label>{t('session')}<select name="service" value={selected} onChange={(e) => { setSelected(e.target.value); setBookingTime(''); if (e.target.value === 'The first conversation') setSessionFormat('Online'); }}>{offerings.map(o => { const optionFormat = country === 'Myanmar' || o.title === 'The first conversation' ? 'Online' : sessionFormat; const optionPrice = selectedPrice(o.title, country, optionFormat); const priceLabel = optionPrice.amount ? moneyLabel(optionPrice.amount, optionPrice.currency) : t('free'); return <option key={o.title} value={o.title}>{t(o.titleKey)} · {o.duration} · {priceLabel}{o.title === 'Breathwork + meditation (group, up to 5 people)' ? ` (${t('groupPriceNote')})` : ''}</option>; })}</select></label>
-      {selected === 'Breathwork + meditation (group, up to 5 people)' ? <label>{t('groupSize')}<select name="participantCount" value={participantCount} onChange={(e) => setParticipantCount(e.target.value)}>{[3, 4, 5].map(count => <option key={count} value={count}>{count} {t('people')}</option>)}</select></label> : <input type="hidden" name="participantCount" value="1" />}
-      <p className="booking-price">{t('sessionPrice')}: <b>{price.amount ? moneyLabel(price.amount, price.currency) : t('free')}</b>{selected === 'Breathwork + meditation (group, up to 5 people)' && <small>{t('groupPriceNote')}</small>}{country === 'Myanmar' && <small>{t('myanmarOnlineOnly')}</small>}</p>
-      <label>{t('anythingKnow')} <span className="optional">{t('optional')}</span><textarea name="note" rows="3" placeholder={t('notePlaceholder')} /></label>
-      {bookingError && <p className="booking-error" role="alert">{bookingError}</p>}<button className="button button-dark submit-button" type="submit" disabled={submittingBooking}>{submittingBooking ? t('sending') : t('sendRequest')} {!submittingBooking && <ArrowRight size={17} />}</button><small className="privacy-note">{t('privacy')}</small>
-    </form></>}</section></div>}
+    {booking && <main className="booking-page">
+      <header className="booking-page-header"><a className="brand" href="#home" onClick={(event) => { event.preventDefault(); setBooking(false); }}><span className="brand-mark">w.</span><span>way to live</span></a><div className="booking-page-step">{t('goodStart')}</div><button className="booking-page-close" aria-label={t('closeBooking')} onClick={() => setBooking(false)}><X size={20} /></button></header>
+      {confirmed ? <section className="booking-page-confirmation confirmation"><span className="confirm-icon"><Check size={25} /></span><div className="eyebrow">{t('firstStep')}</div><h1>{t('thanks')}<br /><em>{t('reaching')}</em></h1><p>{t('confirmation')}</p><button className="button button-dark" onClick={() => setBooking(false)}>{t('backHome')} <ArrowRight size={17} /></button></section> : <section className="booking-page-content">
+        <div className="booking-page-intro"><div className="eyebrow"><span className="eyebrow-dot" /> {t('goodStart')}</div><h1 id="booking-title">{t('bookingTitle')}</h1><p>{t('modalIntro')}</p></div>
+        <form className="booking-page-form" onSubmit={submitBooking}>
+          <section className="booking-calendar-panel" aria-label={t('preferredDate')}>
+            <div className="booking-panel-heading"><div><span className="booking-panel-kicker">{t('preferredDate')}</span><h2>{calendarMonthLabel}</h2></div><div className="calendar-month-controls"><button type="button" aria-label={t('previousMonth')} disabled={visibleMonth <= minimumMonth} onClick={() => changeVisibleMonth(-1)}><ChevronLeft size={18} /></button><button type="button" aria-label={t('nextMonth')} onClick={() => changeVisibleMonth(1)}><ChevronRight size={18} /></button></div></div>
+            {availabilityError && <p className="calendar-error" role="alert">{availabilityError}</p>}
+            <div className="booking-calendar-grid">{weekdayLabels.map((weekday, index) => <span className="calendar-weekday" key={`${weekday}-${index}`}>{weekday}</span>)}{calendarCells.map((date, index) => {
+              if (!date) return <span className="calendar-empty" key={`empty-${index}`} />;
+              const hasSlots = Boolean(availabilityByDate[date]?.length);
+              const isPast = date < businessToday();
+              return <button key={date} type="button" className={`calendar-day${bookingDate === date ? ' selected' : ''}${hasSlots ? ' has-slots' : ''}`} disabled={isPast} aria-pressed={bookingDate === date} onClick={() => selectBookingDate(date)}><span>{Number(date.slice(-2))}</span>{hasSlots && <i />}</button>;
+            })}</div>
+            <div className="calendar-legend"><span><i /> {availabilityLoading ? t('checkingCalendar') : t('calendarHasSlots')}</span></div>
+            <div className="calendar-time-panel"><div className="booking-panel-kicker">{bookingDate ? new Intl.DateTimeFormat(i18n.language === 'my' ? 'my' : 'en', { dateStyle: 'full', timeZone: 'UTC' }).format(new Date(`${bookingDate}T12:00:00Z`)) : t('availableTime')}</div>
+              {!bookingDate ? <p className="calendar-prompt">{t('selectCalendarDate')}</p> : availabilityLoading ? <p className="calendar-prompt">{t('checking')}</p> : availableTimes.length ? <div className="booking-time-options">{availableTimes.map((slot) => <button type="button" key={slot.value} className={bookingTime === slot.value ? 'selected' : ''} aria-pressed={bookingTime === slot.value} onClick={() => setBookingTime(slot.value)}>{slot.label}</button>)}</div> : <p className="calendar-prompt">{t('noTimesHint')}</p>}
+            </div>
+          </section>
+          <section className="booking-details-panel">
+            <div className="booking-panel-heading"><div><span className="booking-panel-kicker">{t('session')}</span><h2>{t('bookingDetails')}</h2></div></div>
+            <label>{t('session')}<select name="service" value={selected} onChange={(e) => { setSelected(e.target.value); setBookingTime(''); if (e.target.value === 'The first conversation') setSessionFormat('Online'); }}>{offerings.map(o => <option key={o.title} value={o.title}>{t(o.titleKey)} · {o.duration}</option>)}</select></label>
+            <label>{t('country')}<select name="country" value={country} onChange={(e) => { setCountry(e.target.value); setSessionFormat('Online'); setBookingTime(''); }}><option value="Thailand">{t('thailand')}</option><option value="Myanmar">{t('myanmar')}</option></select></label>
+            {onlineOnly ? <input type="hidden" name="format" value="Online" /> : <label>{t('sessionFormat')}<select name="format" value={sessionFormat} onChange={(e) => { setSessionFormat(e.target.value); setBookingTime(''); }}><option value="Online">{t('online')}</option><option value="In-person">{t('inPerson')}</option></select></label>}
+            {sessionFormat === 'In-person' && <p className="inperson-note">{t('inPersonNote')}</p>}
+            {selected === 'Breathwork + meditation (group, up to 5 people)' ? <label>{t('groupSize')}<select name="participantCount" value={participantCount} onChange={(e) => setParticipantCount(e.target.value)}>{[3, 4, 5].map(count => <option key={count} value={count}>{count} {t('people')}</option>)}</select></label> : <input type="hidden" name="participantCount" value="1" />}
+            <div className="booking-price">{t('sessionPrice')}: <b>{price.amount ? moneyLabel(price.amount, price.currency) : t('free')}</b>{selected === 'Breathwork + meditation (group, up to 5 people)' && <small>{t('groupPriceNote')}</small>}{country === 'Myanmar' && <small>{t('myanmarOnlineOnly')}</small>}</div>
+            <label>{t('yourName')}<input required name="name" placeholder={t('namePlaceholder')} autoComplete="name" /></label>
+            <label>{t('email')}<input required type="email" name="email" placeholder="you@example.com" autoComplete="email" /></label>
+            <label>{t('anythingKnow')} <span className="optional">{t('optional')}</span><textarea name="note" rows="3" placeholder={t('notePlaceholder')} /></label>
+            <input type="hidden" name="date" value={bookingDate} /><input type="hidden" name="time" value={bookingTime} />
+            {bookingError && <p className="booking-error" role="alert">{bookingError}</p>}
+            <button className="button button-dark submit-button" type="submit" disabled={submittingBooking || !bookingDate || !bookingTime}>{submittingBooking ? t('sending') : t('sendRequest')} {!submittingBooking && <ArrowRight size={17} />}</button><small className="privacy-note">{t('privacy')}</small>
+          </section>
+        </form>
+      </section>}
+    </main>}
   </>;
 }
 
