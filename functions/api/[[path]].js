@@ -112,6 +112,27 @@ async function ensureAdmin(request, db) {
 function bookingDto(row) {
   return { ...row, price: row.price_cents / 100, amount: row.price_cents / 100 };
 }
+function normalizedEmail(value) {
+  const email = String(value || '').trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254 ? email : null;
+}
+function randomLookupCode() {
+  const upperBound = 900_000;
+  const limit = Math.floor(0x1_0000_0000 / upperBound) * upperBound;
+  const values = new Uint32Array(1);
+  do crypto.getRandomValues(values); while (values[0] >= limit);
+  return String(100_000 + (values[0] % upperBound));
+}
+function bookingLookupDto(row) {
+  return {
+    date: row.date,
+    time: row.time,
+    service: row.service,
+    format: row.format,
+    status: row.status,
+    paymentStatus: row.payment_status,
+  };
+}
 function toBase64Url(bytes) {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -258,6 +279,21 @@ async function sendBookingEmail(env, booking) {
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.message || `Resend returned ${response.status}.`);
 }
+async function sendBookingLookupCode(env, email, code) {
+  if (!env.RESEND_API_KEY || !env.BOOKING_FROM_EMAIL) return;
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: env.BOOKING_FROM_EMAIL,
+      to: [email],
+      subject: 'Your Way to Live booking lookup code',
+      text: `Your booking lookup code is ${code}. It expires in 10 minutes.`,
+    }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.message || `Resend returned ${response.status}.`);
+}
 
 async function route(context) {
   const { request, env } = context;
@@ -320,6 +356,40 @@ async function route(context) {
   if (method === 'GET' && path === '/events') {
     const { results } = await db.prepare('SELECT id,title,starts_at,ends_at,location,description FROM events WHERE is_published=1 AND starts_at>=? ORDER BY starts_at LIMIT 30').bind(new Date().toISOString()).all();
     return json(results);
+  }
+
+  if (method === 'POST' && path === '/bookings/lookup-code') {
+    let data;
+    try { data = await readBody(request); } catch (error) { return fail(error.message, error.status || 400); }
+    const email = normalizedEmail(data?.email);
+    if (!email) return fail('Enter a valid email address.');
+    const now = Date.now();
+    await db.prepare('DELETE FROM booking_lookup_codes WHERE expires_at<=?').bind(now).run();
+    const existing = await db.prepare('SELECT requested_at FROM booking_lookup_codes WHERE email=?').bind(email).first();
+    if (!existing || existing.requested_at <= now - 60_000) {
+      const code = randomLookupCode();
+      await db.prepare(`INSERT INTO booking_lookup_codes(email,code_hash,expires_at,requested_at) VALUES(?,?,?,?)
+        ON CONFLICT(email) DO UPDATE SET code_hash=excluded.code_hash,expires_at=excluded.expires_at,requested_at=excluded.requested_at`)
+        .bind(email, await sha256(code), now + 10 * 60_000, now).run();
+      const booking = await db.prepare('SELECT id FROM bookings WHERE lower(email)=? LIMIT 1').bind(email).first();
+      if (booking && context.waitUntil) context.waitUntil(sendBookingLookupCode(env, email, code).catch((error) => console.error('Booking lookup code email failed:', error.message)));
+    }
+    return json({ message: 'If that email has bookings, a verification code has been sent.' });
+  }
+
+  if (method === 'POST' && path === '/bookings/lookup') {
+    let data;
+    try { data = await readBody(request); } catch (error) { return fail(error.message, error.status || 400); }
+    const email = normalizedEmail(data?.email);
+    const code = String(data?.code || '');
+    if (!email || !/^\d{6}$/.test(code)) return fail('Enter a valid email address and six-digit code.');
+    const verified = await db.prepare(`DELETE FROM booking_lookup_codes
+      WHERE email=? AND code_hash=? AND expires_at>? RETURNING email`)
+      .bind(email, await sha256(code), Date.now()).first();
+    if (!verified) return fail('The verification code is invalid or expired.', 401);
+    const { results } = await db.prepare(`SELECT date,time,service,format,status,payment_status FROM bookings
+      WHERE lower(email)=? ORDER BY date,time`).bind(email).all();
+    return json({ bookings: results.map(bookingLookupDto) });
   }
 
   if (method === 'POST' && path === '/bookings') {

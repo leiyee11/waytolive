@@ -2,7 +2,7 @@ import http from 'node:http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomInt, scryptSync, timingSafeEqual } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -128,6 +128,14 @@ db.exec(`
     sent_at TEXT,
     last_error TEXT
   );
+  CREATE TABLE IF NOT EXISTS booking_lookup_codes (
+    email TEXT PRIMARY KEY,
+    code_hash TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    requested_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS booking_lookup_codes_expiry_idx
+    ON booking_lookup_codes(expires_at);
 `);
 const bookingColumns = new Set(db.prepare('PRAGMA table_info(bookings)').all().map((column) => column.name));
 if (!bookingColumns.has('country')) db.exec("ALTER TABLE bookings ADD COLUMN country TEXT NOT NULL DEFAULT 'Thailand'");
@@ -355,6 +363,28 @@ function parseMonth(month) {
 function bookingDto(row) {
   return { ...row, price: row.price_cents / 100, amount: row.price_cents / 100 };
 }
+function normalizedEmail(value) {
+  const email = String(value || '').trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254 ? email : null;
+}
+function lookupCodeHash(code) {
+  return createHash('sha256').update(code).digest('hex');
+}
+function verifyLookupCode(code, storedHash) {
+  const expected = Buffer.from(String(storedHash || ''), 'hex');
+  const candidate = Buffer.from(lookupCodeHash(code), 'hex');
+  return expected.length === candidate.length && timingSafeEqual(candidate, expected);
+}
+function bookingLookupDto(row) {
+  return {
+    date: row.date,
+    time: row.time,
+    service: row.service,
+    format: row.format,
+    status: row.status,
+    paymentStatus: row.payment_status,
+  };
+}
 function eventDto(row) { return row; }
 
 const notificationInFlight = new Set();
@@ -406,6 +436,22 @@ async function dispatchBookingNotifications() {
   const pending = db.prepare(`SELECT booking_id FROM booking_notifications
     WHERE sent_at IS NULL AND next_attempt_at<=CURRENT_TIMESTAMP ORDER BY booking_id LIMIT 20`).all();
   for (const { booking_id: bookingId } of pending) await sendBookingNotification(bookingId);
+}
+async function sendBookingLookupCode(email, code) {
+  if (!RESEND_API_KEY || !BOOKING_FROM_EMAIL) return;
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: BOOKING_FROM_EMAIL,
+      to: [email],
+      subject: 'Your Way to Live booking lookup code',
+      text: `Your booking lookup code is ${code}. It expires in 10 minutes.`,
+    }),
+    signal: AbortSignal.timeout(12_000),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.message || result.name || `Email provider returned ${response.status}.`);
 }
 
 const notificationTimer = setInterval(() => {
@@ -464,6 +510,51 @@ async function route(req, res) {
   if (req.method === 'GET' && pathname === '/api/events') {
     const events = db.prepare('SELECT id,title,starts_at,ends_at,location,description FROM events WHERE is_published=1 AND starts_at>=? ORDER BY starts_at LIMIT 30').all(new Date().toISOString());
     return send(res, 200, events.map(eventDto));
+  }
+
+  if (req.method === 'POST' && pathname === '/api/bookings/lookup-code') {
+    let data;
+    try { data = await bodyJson(req); } catch (error) { return fail(res, 400, error.message); }
+    const email = normalizedEmail(data?.email);
+    if (!email) return fail(res, 400, 'Enter a valid email address.');
+    const now = Date.now();
+    db.prepare('DELETE FROM booking_lookup_codes WHERE expires_at<=?').run(now);
+    const existing = db.prepare('SELECT requested_at FROM booking_lookup_codes WHERE email=?').get(email);
+    if (!existing || existing.requested_at <= now - 60_000) {
+      const code = String(randomInt(100_000, 1_000_000));
+      db.prepare(`INSERT INTO booking_lookup_codes(email,code_hash,expires_at,requested_at) VALUES(?,?,?,?)
+        ON CONFLICT(email) DO UPDATE SET code_hash=excluded.code_hash,expires_at=excluded.expires_at,requested_at=excluded.requested_at`)
+        .run(email, lookupCodeHash(code), now + 10 * 60_000, now);
+      const booking = db.prepare('SELECT id FROM bookings WHERE lower(email)=? LIMIT 1').get(email);
+      if (booking) sendBookingLookupCode(email, code).catch((error) => console.error('Booking lookup code email failed:', error.message));
+    }
+    return send(res, 200, { message: 'If that email has bookings, a verification code has been sent.' });
+  }
+
+  if (req.method === 'POST' && pathname === '/api/bookings/lookup') {
+    let data;
+    try { data = await bodyJson(req); } catch (error) { return fail(res, 400, error.message); }
+    const email = normalizedEmail(data?.email);
+    const code = String(data?.code || '');
+    if (!email || !/^\d{6}$/.test(code)) return fail(res, 400, 'Enter a valid email address and six-digit code.');
+    const now = Date.now();
+    let bookings;
+    try {
+      db.exec('BEGIN IMMEDIATE');
+      const verification = db.prepare('SELECT code_hash,expires_at FROM booking_lookup_codes WHERE email=?').get(email);
+      if (!verification || verification.expires_at <= now || !verifyLookupCode(code, verification.code_hash)) {
+        db.exec('ROLLBACK');
+        return fail(res, 401, 'The verification code is invalid or expired.');
+      }
+      db.prepare('DELETE FROM booking_lookup_codes WHERE email=?').run(email);
+      bookings = db.prepare(`SELECT date,time,service,format,status,payment_status FROM bookings
+        WHERE lower(email)=? ORDER BY date,time`).all(email).map(bookingLookupDto);
+      db.exec('COMMIT');
+    } catch (error) {
+      try { db.exec('ROLLBACK'); } catch {}
+      throw error;
+    }
+    return send(res, 200, { bookings });
   }
 
   if (req.method === 'POST' && pathname === '/api/bookings') {
