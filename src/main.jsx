@@ -26,14 +26,14 @@ function selectedPrice(service, country, format) {
 }
 
 const certificates = [
-  { title: 'Reiki Level 2 · Okuden', date: '19 March 2023', image: '/certificates/reiki-level-2-okuden.jpeg' },
-  { title: 'Prana · Intermediate Level', date: '24 February 2023', image: '/certificates/prana-intermediate.jpeg' },
-  { title: 'Prana · Advanced Level', date: '26 June 2023', image: '/certificates/prana-advanced.jpeg' },
-  { title: 'Reiki Level 1 · Shoden', date: '17 December 2022', image: '/certificates/reiki-level-1-shoden.jpeg' },
-  { title: 'Prana · Foundation Level', date: '30 December 2022', image: '/certificates/prana-foundation.jpeg' },
-  { title: 'Chakra Temple · Meditation Facilitator', date: '1 August 2022', image: '/certificates/chakra-temple-meditation-facilitator.jpeg' },
-  { title: 'Trained LPI Practitioner', date: 'February 2023', image: '/certificates/lpi-practitioner.jpeg' },
-  { title: 'Self Emotional Awareness · Practitioner', date: '26 February 2023', image: '/certificates/self-emotional-awareness-practitioner.jpeg' },
+  { title: 'Reiki Level 2 · Okuden', date: '19 March 2023', organization: 'TRUST School of Healing and Therapeutic' },
+  { title: 'Prana · Intermediate Level', date: '24 February 2023', organization: 'TRUST School of Healing and Therapeutic' },
+  { title: 'Prana · Advanced Level', date: '26 June 2023', organization: 'TRUST School of Healing and Therapeutic' },
+  { title: 'Reiki Level 1 · Shoden', date: '17 December 2022', organization: 'TRUST School of Healing and Therapeutic' },
+  { title: 'Prana · Foundation Level', date: '30 December 2022', organization: 'TRUST School of Healing and Therapeutic' },
+  { title: 'Chakra Temple · Meditation Facilitator', date: '1 August 2022', organization: 'Thu Global' },
+  { title: 'Trained LPI Practitioner', date: 'February 2023', organization: 'TRUST School of Healing and Therapeutic' },
+  { title: 'Self Emotional Awareness · Practitioner', date: '26 February 2023', organization: 'TRUST School of Healing and Therapeutic' },
 ];
 
 const heroSlides = [
@@ -198,7 +198,7 @@ function App() {
             <article className="portfolio-card events-card"><span className="portfolio-index">03 / {t('community')}</span><figure className="event-photo"><img src="/images/may-community-session.jpg" alt="May speaking with participants during an outdoor group session" /></figure><h3>{t('makingSpace')}<br /><em>{t('together')}</em></h3><p>{t('groupText')}</p><div className="event-tags"><span>{t('communitySession')}</span><span>{t('groupPractice')}</span></div></article>
           </div>
           <div className="certificates-heading"><div><div className="section-label">{t('certificates')} <span>↘</span></div><h3>{t('learningHonoured')} <em>{t('honoured')}</em></h3></div><p>{t('certIntro')}</p></div>
-          <div className="certificates-grid">{certificates.map((certificate) => <figure className="certificate-card" key={certificate.title}><a href={certificate.image} target="_blank" rel="noreferrer" aria-label={`View ${certificate.title} certificate`}><img src={certificate.image} alt={`${certificate.title} certificate for May Thinzar Oo`} loading="lazy" /></a><figcaption><b>{certificate.title}</b><span>{certificate.date}</span></figcaption></figure>)}</div>
+          <div className="certificates-grid">{certificates.map((certificate) => <article className="certificate-card" key={certificate.title}><b>{certificate.title}</b><span>{certificate.date}</span><span className="certificate-organization">{certificate.organization}</span></article>)}</div>
         </div>
       </section>
 
