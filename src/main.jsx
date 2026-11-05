@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowDown, ArrowRight, ArrowUpRight, Check, ChevronLeft, ChevronRight, Clock3, Facebook, Heart, Instagram, Menu, Music2, Sparkles, X, Youtube } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUpRight, Check, ChevronLeft, ChevronRight, Clock3, Facebook, Heart, Instagram, Menu, Music2, Search, Sparkles, X, Youtube } from 'lucide-react';
 import AdminDashboard from './AdminDashboard.jsx';
 import './i18n.js';
 import { useTranslation } from 'react-i18next';
@@ -72,6 +72,14 @@ function monthCalendar(month) {
 function App() {
   const { t, i18n } = useTranslation();
   const [booking, setBooking] = useState(false);
+  const [bookingLookupOpen, setBookingLookupOpen] = useState(false);
+  const [lookupEmail, setLookupEmail] = useState('');
+  const [lookupCodeSent, setLookupCodeSent] = useState(false);
+  const [lookupCode, setLookupCode] = useState('');
+  const [lookupResults, setLookupResults] = useState(null);
+  const [lookupError, setLookupError] = useState('');
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [sessionSearch, setSessionSearch] = useState('');
   const [selected, setSelected] = useState(offerings[0].title);
   const [confirmed, setConfirmed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -93,6 +101,10 @@ function App() {
   const onlineOnly = country === 'Myanmar' || selected === 'The first conversation';
   const price = selectedPrice(selected, country, sessionFormat);
   const bookingTotal = price.amount * selectedSlots.length;
+  const filteredOfferings = offerings.filter((offering) => {
+    const query = sessionSearch.trim().toLocaleLowerCase();
+    return !query || [offering.title, t(offering.titleKey), offering.type, t(offering.typeKey), offering.copy, t(offering.copyKey), offering.duration, offering.price, offering.myanmarPrice].filter(Boolean).some((value) => value.toLocaleLowerCase().includes(query));
+  });
   const calendarCells = monthCalendar(visibleMonth);
   const [calendarYear, calendarMonthNumber] = visibleMonth.split('-').map(Number);
   const calendarMonthDate = new Date(Date.UTC(calendarYear, calendarMonthNumber - 1, 1));
@@ -205,6 +217,10 @@ function App() {
     setSelected(service); setConfirmed(false); setBooking(true); setMenuOpen(false); setBookingDate(''); setSelectedSlots([]); setAvailabilityByDate({}); setVisibleMonth(businessToday().slice(0, 7)); setBookingError(''); setSessionFormat('Online'); setCountry('Thailand'); setParticipantCount('3');
   }
 
+  function openBookingLookup() {
+    setBooking(false); setBookingLookupOpen(true); setMenuOpen(false); setLookupEmail(''); setLookupCodeSent(false); setLookupCode(''); setLookupResults(null); setLookupError('');
+  }
+
   function changeVisibleMonth(delta) {
     const [year, month] = visibleMonth.split('-').map(Number);
     const next = new Date(Date.UTC(year, month - 1 + delta, 1));
@@ -249,6 +265,28 @@ function App() {
     finally { setSubmittingBooking(false); }
   }
 
+  async function requestBookingLookupCode(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setLookupLoading(true); setLookupError(''); setLookupResults(null);
+    try {
+      const email = String(form.get('email') || '').trim().toLowerCase();
+      await apiRequest('/api/bookings/lookup-code', { method: 'POST', body: JSON.stringify({ email }) });
+      setLookupEmail(email); setLookupCodeSent(true);
+    } catch (error) { setLookupError(error.message); }
+    finally { setLookupLoading(false); }
+  }
+
+  async function searchCustomerBookings(event) {
+    event.preventDefault();
+    setLookupLoading(true); setLookupError(''); setLookupResults(null);
+    try {
+      const result = await apiRequest('/api/bookings/lookup', { method: 'POST', body: JSON.stringify({ email: lookupEmail, code: lookupCode }) });
+      setLookupResults(result.bookings || []);
+    } catch (error) { setLookupError(error.message); }
+    finally { setLookupLoading(false); }
+  }
+
   return <>
     <header className="nav wrap">
       <a className="brand" href="#home" aria-label="Way to Live home"><span className="brand-mark">w.</span><span>way to live</span></a>
@@ -256,7 +294,7 @@ function App() {
       <nav className={menuOpen ? 'nav-links open' : 'nav-links'}>
         <a href="#way-to-live" onClick={() => setMenuOpen(false)}>{t('navAbout')}</a><a href="#sessions" onClick={() => setMenuOpen(false)}>{t('navSessions')}</a><a href="#about" onClick={() => setMenuOpen(false)}>{t('navMay')}</a>
         <div className="nav-socials"><a href="https://www.facebook.com/thewaytolive8" target="_blank" rel="noreferrer" aria-label="Way to Live on Facebook"><Facebook /></a><a href="https://www.instagram.com/thewaytolive8/" target="_blank" rel="noreferrer" aria-label="Way to Live on Instagram"><Instagram /></a><a href="https://www.youtube.com/@TheWayToLive-88" target="_blank" rel="noreferrer" aria-label="Way to Live on YouTube"><Youtube /></a><a href="https://www.tiktok.com/@thewaytolivebymay?lang=en" target="_blank" rel="noreferrer" aria-label="Way to Live on TikTok"><Music2 /></a></div>
-        {/* <button className="language-toggle" type="button" onClick={toggleLanguage} aria-label={`Change language to ${t('language')}`}>{t('language')}</button> */}<button className="nav-cta" onClick={() => openBooking()}>{t('bookSession')} <ArrowUpRight size={15} /></button>
+        {/* <button className="language-toggle" type="button" onClick={toggleLanguage} aria-label={`Change language to ${t('language')}`}>{t('language')}</button> */}<button className="nav-lookup" onClick={openBookingLookup}>{t('findMyBooking')}</button><button className="nav-cta" onClick={() => openBooking()}>{t('bookSession')} <ArrowUpRight size={15} /></button>
       </nav>
     </header>
 
@@ -289,8 +327,8 @@ function App() {
         </div>
       </section>
 
-      <section className="sessions section" id="sessions"><div className="wrap"><div className="sessions-heading"><div><div className="section-label">{t('waysWork')} <span>↘</span></div><h2>{t('placeBegin')} <em>{t('begin')}</em></h2></div><p>{t('sessionsIntro')}</p></div>
-        <div className="offerings">{offerings.map(({ number, title, titleKey, type, typeKey, copy, copyKey, duration, price: rateLabel, priceNote, myanmarPrice, icon: Icon }) => <article className="offering" key={number}><div className="offering-top"><span>{number}</span><Icon size={19} strokeWidth={1.5} /></div><div className="offering-type">{t(typeKey)}</div><h3>{t(titleKey)}</h3><p>{t(copyKey)}</p><div className="offering-bottom"><div className="offering-rate"><span>{duration}</span><b>{rateLabel}</b>{priceNote && <small>{priceNote}</small>}{myanmarPrice && <small>{myanmarPrice}</small>}</div><button aria-label={t('bookingService', { service: t(titleKey) })} onClick={() => openBooking(title)}><ArrowUpRight size={18} /></button></div></article>)}</div>
+      <section className="sessions section" id="sessions"><div className="wrap"><div className="sessions-heading"><div><div className="section-label">{t('waysWork')} <span>↘</span></div><h2>{t('placeBegin')} <em>{t('begin')}</em></h2></div><div className="sessions-tools"><p>{t('sessionsIntro')}</p><label className="session-search"><Search size={17} aria-hidden="true" /><input type="search" value={sessionSearch} onChange={(event) => setSessionSearch(event.target.value)} placeholder={t('sessionSearch')} aria-label={t('sessionSearch')} /></label></div></div>
+        {filteredOfferings.length ? <div className="offerings">{filteredOfferings.map(({ number, title, titleKey, type, typeKey, copy, copyKey, duration, price: rateLabel, priceNote, myanmarPrice, icon: Icon }) => <article className="offering" key={number}><div className="offering-top"><span>{number}</span><Icon size={19} strokeWidth={1.5} /></div><div className="offering-type">{t(typeKey)}</div><h3>{t(titleKey)}</h3><p>{t(copyKey)}</p><div className="offering-bottom"><div className="offering-rate"><span>{duration}</span><b>{rateLabel}</b>{priceNote && <small>{priceNote}</small>}{myanmarPrice && <small>{myanmarPrice}</small>}</div><button aria-label={t('bookingService', { service: t(titleKey) })} onClick={() => openBooking(title)}><ArrowUpRight size={18} /></button></div></article>)}</div> : <p className="session-search-empty">{t('noSessionsFound')}</p>}
       </div></section>
 
       {upcomingEvents.length > 0 && <section className="public-events section"><div className="wrap"><div className="section-label">{t('gather')} <span>↘</span></div><h2>{t('upcoming')} <em>{t('events')}</em></h2><div className="public-event-grid">{upcomingEvents.map((item) => <article className="public-event-card" key={item.id}><span className="event-date">{formatEventDate(item.starts_at)}</span><h3>{item.title}</h3>{item.location && <p className="event-location">{item.location}</p>}{item.description && <p>{item.description}</p>}<button className="text-link" onClick={() => openBooking(offerings[3].title)}>{t('askEvent')} <ArrowRight size={15} /></button></article>)}</div></div></section>}
@@ -300,10 +338,20 @@ function App() {
       <section className="cta-section"><div className="cta-orb orb-one" /><div className="cta-orb orb-two" /><div className="cta-inner"><div className="eyebrow light"><span className="eyebrow-dot" /> {t('ready')}</div><h2>{t('startHere')}<br /><em>{t('here')}</em></h2><p>{t('startText')}</p><button className="button button-light" onClick={() => openBooking(offerings[3].title)}>{t('firstChat')} <ArrowRight size={17} /></button></div><span className="cta-spark">✳</span></section>
     </main>
 
-    <footer className="footer wrap"><a className="brand" href="#home"><span className="brand-mark">w.</span><span>way to live</span></a><span className="footer-note">{t('footerNote')}</span><div className="footer-socials"><a href="https://www.facebook.com/thewaytolive8" target="_blank" rel="noreferrer" aria-label="Way to Live on Facebook"><Facebook /></a><a href="https://www.instagram.com/thewaytolive8/" target="_blank" rel="noreferrer" aria-label="Way to Live on Instagram"><Instagram /></a><a href="https://www.youtube.com/@TheWayToLive-88" target="_blank" rel="noreferrer" aria-label="Way to Live on YouTube"><Youtube /></a><a href="https://www.tiktok.com/@thewaytolivebymay?lang=en" target="_blank" rel="noreferrer" aria-label="Way to Live on TikTok"><Music2 /></a></div><span className="copyright">{t('copyright')}</span><a className="dashboard-link" href="/admin">{t('dashboard')}</a></footer>
+    <footer className="footer wrap"><a className="brand" href="#home"><span className="brand-mark">w.</span><span>way to live</span></a><span className="footer-note">{t('footerNote')}</span><div className="footer-socials"><a href="https://www.facebook.com/thewaytolive8" target="_blank" rel="noreferrer" aria-label="Way to Live on Facebook"><Facebook /></a><a href="https://www.instagram.com/thewaytolive8/" target="_blank" rel="noreferrer" aria-label="Way to Live on Instagram"><Instagram /></a><a href="https://www.youtube.com/@TheWayToLive-88" target="_blank" rel="noreferrer" aria-label="Way to Live on YouTube"><Youtube /></a><a href="https://www.tiktok.com/@thewaytolivebymay?lang=en" target="_blank" rel="noreferrer" aria-label="Way to Live on TikTok"><Music2 /></a></div><span className="copyright">{t('copyright')}</span><button className="dashboard-link customer-booking-link" onClick={openBookingLookup}>{t('findMyBooking')}</button><a className="dashboard-link" href="/admin">{t('dashboard')}</a></footer>
+
+    {bookingLookupOpen && <main className="booking-page">
+      <header className="booking-page-header"><a className="brand" href="#home" onClick={(event) => { event.preventDefault(); setBookingLookupOpen(false); }}><span className="brand-mark">w.</span><span>way to live</span></a><div className="booking-page-step">{t('bookingLookup')}</div><button className="booking-page-close" aria-label={t('closeBooking')} onClick={() => setBookingLookupOpen(false)}><X size={20} /></button></header>
+      <section className="booking-page-content booking-lookup-content"><div className="booking-page-intro"><div className="eyebrow"><span className="eyebrow-dot" /> {t('bookingLookup')}</div><h1>{t('lookupTitle')}</h1><p>{t('lookupIntro')}</p></div>
+        {!lookupCodeSent ? <form className="booking-details-panel booking-lookup-form" onSubmit={requestBookingLookupCode}><label>{t('email')}<input required type="email" name="email" autoComplete="email" placeholder="you@example.com" /></label>{lookupError && <p className="booking-error" role="alert">{lookupError}</p>}<button className="button button-dark submit-button" type="submit" disabled={lookupLoading}>{lookupLoading ? t('searchingBookings') : t('sendLookupCode')} <ArrowRight size={17} /></button></form>
+          : <form className="booking-details-panel booking-lookup-form" onSubmit={searchCustomerBookings}><p className="lookup-code-note" role="status">{t('lookupCodeSent', { email: lookupEmail })}</p><label>{t('lookupCode')}<input required inputMode="numeric" name="code" value={lookupCode} onChange={(event) => setLookupCode(event.target.value.replace(/\D/g, '').slice(0, 6))} minLength="6" maxLength="6" pattern="[0-9]{6}" autoComplete="one-time-code" /></label>{lookupError && <p className="booking-error" role="alert">{lookupError}</p>}<button className="button button-dark submit-button" type="submit" disabled={lookupLoading || lookupCode.length !== 6}>{lookupLoading ? t('searchingBookings') : t('searchBookings')} <Search size={17} /></button><button className="lookup-resend" type="button" onClick={() => { setLookupCodeSent(false); setLookupCode(''); setLookupResults(null); }}>{t('changeLookupEmail')}</button>
+          {lookupResults && (lookupResults.length ? <div className="booking-lookup-results" aria-live="polite">{lookupResults.map((item) => <article className="booking-lookup-result" key={`${item.date}-${item.time}`}><b>{new Intl.DateTimeFormat(i18n.language === 'my' ? 'my' : 'en', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${item.date}T12:00:00Z`))} · {item.time}</b><span>{item.service} · {item.format}</span><span>{t(`bookingStatus_${item.status}`, { defaultValue: item.status })} · {t(`payment_${item.paymentStatus}`, { defaultValue: item.paymentStatus })}</span></article>)}</div> : <p className="booking-lookup-empty" role="status">{t('lookupNoResults')}</p>)}
+          </form>}
+      </section>
+    </main>}
 
     {booking && <main className="booking-page">
-      <header className="booking-page-header"><a className="brand" href="#home" onClick={(event) => { event.preventDefault(); setBooking(false); }}><span className="brand-mark">w.</span><span>way to live</span></a><div className="booking-page-step">{t('goodStart')}</div><button className="booking-page-close" aria-label={t('closeBooking')} onClick={() => setBooking(false)}><X size={20} /></button></header>
+      <header className="booking-page-header"><a className="brand" href="#home" onClick={(event) => { event.preventDefault(); setBooking(false); }}><span className="brand-mark">w.</span><span>way to live</span></a><div className="booking-page-step">{t('goodStart')}</div><div className="booking-header-actions"><button className="booking-header-lookup" onClick={openBookingLookup}>{t('findMyBooking')}</button><button className="booking-page-close" aria-label={t('closeBooking')} onClick={() => setBooking(false)}><X size={20} /></button></div></header>
       {confirmed ? <section className="booking-page-confirmation confirmation"><span className="confirm-icon"><Check size={25} /></span><div className="eyebrow">{t('firstStep')}</div><h1>{t('thanks')}<br /><em>{t('reaching')}</em></h1><p>{t('confirmation')}</p><button className="button button-dark" onClick={() => setBooking(false)}>{t('backHome')} <ArrowRight size={17} /></button></section> : <section className="booking-page-content">
         <div className="booking-page-intro"><div className="eyebrow"><span className="eyebrow-dot" /> {t('goodStart')}</div><h1 id="booking-title">{t('bookingTitle')}</h1><p>{t('modalIntro')}</p></div>
         <form className="booking-page-form" onSubmit={submitBooking}>

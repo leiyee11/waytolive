@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, CalendarClock, CalendarDays, Check, CircleDollarSign, ClipboardList, LogOut, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, CalendarClock, CalendarDays, Check, CircleDollarSign, ClipboardList, LogOut, Plus, RefreshCw, Save, Search, Trash2 } from 'lucide-react';
 import './admin.css';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
@@ -28,6 +28,7 @@ export default function AdminDashboard() {
   const [loginError, setLoginError] = useState('');
   const [tab, setTab] = useState('Overview');
   const [month, setMonth] = useState(currentMonth());
+  const [bookingSearch, setBookingSearch] = useState('');
   const [summary, setSummary] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [events, setEvents] = useState([]);
@@ -139,6 +140,8 @@ export default function AdminDashboard() {
     { name: 'Google Calendar', icon: Check },
   ];
   const availabilityChoices = Array.from(new Set([...choices, ...draftSlots, ...bookedSlots.map((slot) => slot.time)])).sort();
+  const bookingQuery = bookingSearch.trim().toLocaleLowerCase();
+  const visibleBookings = bookings.filter((booking) => booking.date.startsWith(month) && (!bookingQuery || [booking.name, booking.email, booking.service, booking.format, booking.country, booking.date, booking.time, booking.status, booking.payment_status, booking.note, booking.participant_count].filter(Boolean).join(' ').toLocaleLowerCase().includes(bookingQuery)));
 
   return <main className="admin-shell">
     <aside className="admin-sidebar"><a href="/" className="admin-brand"><span className="admin-monogram">w.</span><span>way to live<small>STUDIO DASHBOARD</small></span></a><nav>{navItems.map(({ name, icon: Icon }) => <button key={name} className={tab === name ? 'active' : ''} onClick={() => { setTab(name); setError(''); setNotice(''); }}><Icon size={17} />{name}{name === 'Bookings' && summary?.pendingCount > 0 && <i>{summary.pendingCount}</i>}</button>)}</nav><button className="admin-signout" onClick={signOut}><LogOut size={16} /> Sign out</button></aside>
@@ -151,7 +154,7 @@ export default function AdminDashboard() {
         <div className="admin-panel"><div className="panel-title"><div><span className="admin-kicker">RECENT CLIENT REQUESTS</span><h2>Bookings to review</h2></div><button className="admin-subtle" onClick={() => setTab('Bookings')}>View all <ArrowLeft size={14} /></button></div>{bookings.slice(0,4).length ? <div className="booking-list">{bookings.slice(0,4).map((booking) => <BookingRow key={booking.id} booking={booking} onUpdate={updateBooking} />)}</div> : <Empty message="No booking requests yet. New requests will appear here." />}</div>
       </>}
 
-      {tab === 'Bookings' && <div className="admin-panel"><div className="panel-title"><div><span className="admin-kicker">CLIENT REQUESTS</span><h2>Bookings</h2></div><label className="month-filter">Filter by date<input type="month" value={month} onChange={(e) => setMonth(e.target.value)} /></label></div>{bookings.filter((booking) => booking.date.startsWith(month)).length ? <div className="booking-list">{bookings.filter((booking) => booking.date.startsWith(month)).map((booking) => <BookingRow key={booking.id} booking={booking} onUpdate={updateBooking} />)}</div> : <Empty message="No bookings for this month yet." />}</div>}
+      {tab === 'Bookings' && <div className="admin-panel"><div className="panel-title"><div><span className="admin-kicker">CLIENT REQUESTS</span><h2>Bookings</h2></div><div className="booking-filters"><label className="month-filter">Filter by date<input type="month" value={month} onChange={(e) => setMonth(e.target.value)} /></label><label className="booking-search"><Search size={15} aria-hidden="true" /><input type="search" value={bookingSearch} onChange={(e) => setBookingSearch(e.target.value)} placeholder="Search bookings" aria-label="Search bookings" /></label></div></div>{visibleBookings.length ? <div className="booking-list">{visibleBookings.map((booking) => <BookingRow key={booking.id} booking={booking} onUpdate={updateBooking} />)}</div> : <Empty message={bookingQuery ? 'No bookings match your search.' : 'No bookings for this month yet.'} />}</div>}
 
       {tab === 'Availability' && <div className="admin-panel availability-panel"><div className="panel-title"><div><span className="admin-kicker">PUBLIC BOOKING SCHEDULE</span><h2>Available dates & times</h2></div><label>Select date<input type="date" min={localDate()} value={availabilityDate} onChange={(e) => setAvailabilityDate(e.target.value)} /></label></div><p className="panel-copy">Choose the times clients can request on this date. Booked times are marked unavailable automatically.</p><form onSubmit={saveAvailability}><div className="time-grid">{availabilityChoices.map((time) => { const booking = bookedSlots.find((slot) => slot.time === time); const locked = Boolean(booking); const available = draftSlots.includes(time) && !locked; return <label key={time} className={`${available ? 'checked' : ''}${locked ? ' locked booked' : ''}`}><input type="checkbox" checked={available} disabled={locked} onChange={() => toggleSlot(time)} /><span>{available ? <Check size={13} /> : <i />}</span>{timeLabel(time)}{locked && <small>Unavailable · {booking.status}</small>}</label>; })}</div><div className="availability-extra"><label>Add a custom time<input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} /></label><button type="button" className="admin-subtle" disabled={!newTime} onClick={() => { if (!draftSlots.includes(newTime)) setDraftSlots((current) => [...current,newTime].sort()); setNewTime(''); }}><Plus size={15} /> Add time</button></div><button className="admin-primary save-availability" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save availability'} <Save size={16} /></button></form></div>}
 

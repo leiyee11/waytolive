@@ -116,3 +116,9 @@
 .time-grid label.checked>span{background:#FF9346;border-color:#FF9346}
 .admin-alert.success{background:#FFF0E5;color:#A94D0A}
 .setup-note{background:#FFF0E5;border-color:#FF9346;color:#A94D0A}
+.booking-filters{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.booking-search{display:flex;align-items:center;gap:8px;padding:0 11px;height:38px;border:1px solid #F4C9A8;border-radius:8px;background:#fffaf7;color:#C95E12}
+.booking-search:focus-within{border-color:#FF9346;box-shadow:0 0 0 3px #ff934620}
+.booking-search input{width:min(230px,42vw);border:0;outline:0;background:transparent;color:#493a30;font:13px 'DM Sans',sans-serif}
+.booking-search input::placeholder{color:#a08e80}
+@media(max-width:480px){.booking-filters{width:100%;display:grid;grid-template-columns:1fr}.booking-search input{width:100%}}
