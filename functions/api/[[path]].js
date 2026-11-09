@@ -275,6 +275,7 @@ async function sendBookingEmail(env, booking) {
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST', headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ from: env.BOOKING_FROM_EMAIL, to: [env.BOOKING_NOTIFICATION_EMAIL || 'may.wytu@gmail.com'], subject: `New session request: ${booking.name}`, text }),
+    signal: AbortSignal.timeout(12_000),
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.message || `Resend returned ${response.status}.`);
@@ -438,7 +439,9 @@ async function route(context) {
     if (results.some((result) => result.meta.changes !== 1)) return fail('That time is no longer available. Please choose another slot.', 409);
     const createdBookings = preparedSlots.map((slot, index) => ({ id: Number(results[index].meta.last_row_id), name, email, date: slot.date, time: slot.time, format, service, country, currency: pricing.currency, participant_count: participantCount, note, status: 'pending', price_cents: pricing.priceCents, calendar_event_id: null, busy: slot.busy }));
     for (const booking of createdBookings) {
-      if (context.waitUntil) context.waitUntil(sendBookingEmail(env, booking).catch((error) => console.error('Booking email failed', booking.id, error.message)));
+      const emailTask = sendBookingEmail(env, booking).catch((error) => console.error('Booking email failed', booking.id, error.message));
+      if (typeof context.waitUntil === 'function') context.waitUntil(emailTask);
+      else await emailTask;
       if (!booking.busy) continue;
       try {
         const eventId = await addCalendarHold(db, env, booking);

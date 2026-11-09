@@ -17,5 +17,5 @@
     "BOOKING_NOTIFICATION_EMAIL": "may.wytu@gmail.com",
     "GOOGLE_CALENDAR_ID": "primary",
     "GOOGLE_REDIRECT_URI": "https://waytolive.pages.dev/api/admin/google/callback"
-  }
+  },
 }

@@ -100,7 +100,10 @@ function App() {
   const availableTimes = bookingDate ? availabilityByDate[bookingDate] || [] : [];
   const onlineOnly = country === 'Myanmar' || selected === 'The first conversation';
   const price = selectedPrice(selected, country, sessionFormat);
-  const bookingTotal = price.amount * selectedSlots.length;
+  const selectedOffering = offerings.find((offering) => offering.title === selected);
+  const selectedOfferingName = selectedOffering ? t(selectedOffering.titleKey) : selected;
+  const selectedPriceLabel = price.amount ? moneyLabel(price.amount, price.currency) : t('free');
+  const bookingTotal = selectedSlots.reduce((total) => total + price.amount, 0);
   const filteredOfferings = offerings.filter((offering) => {
     const query = sessionSearch.trim().toLocaleLowerCase();
     return !query || [offering.title, t(offering.titleKey), offering.type, t(offering.typeKey), offering.copy, t(offering.copyKey), offering.duration, offering.price, offering.myanmarPrice].filter(Boolean).some((value) => value.toLocaleLowerCase().includes(query));
@@ -376,7 +379,7 @@ function App() {
           <section className="booking-details-panel">
             {selectedSlots.length ? <ul className="booking-selected-slots" aria-label={t('selectedTimes')}>{selectedSlots.map((slot) => {
               const formattedDate = new Intl.DateTimeFormat(i18n.language === 'my' ? 'my' : 'en', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${slot.date}T12:00:00Z`));
-              return <li key={slotKey(slot)}><span>{formattedDate} · {slot.time}</span><button type="button" onClick={() => removeSelectedSlot(slot)} aria-label={t('removeSelectedTime', { date: formattedDate, time: slot.time })}><X size={15} /></button></li>;
+              return <li key={slotKey(slot)}><div className="booking-slot-summary"><span className="booking-slot-date">{formattedDate} · {slot.time}</span><span className="booking-slot-service">{selectedOfferingName}{selected === 'Breathwork + meditation (group, up to 5 people)' ? ` · ${participantCount} ${t('people')}` : ''}</span><span className="booking-slot-price">{onlineOnly ? t('online') : t(sessionFormat)} · {selectedPriceLabel}</span></div><button type="button" onClick={() => removeSelectedSlot(slot)} aria-label={t('removeSelectedTime', { date: formattedDate, time: slot.time })}><X size={15} /></button></li>;
             })}</ul> : <p className="calendar-prompt">{t('selectCalendarDate')}</p>}
             <div className="booking-panel-heading"><div><span className="booking-panel-kicker">{t('session')}</span><h2>{t('bookingDetails')}</h2></div></div>
             <label>{t('session')}<select name="service" value={selected} onChange={(e) => { setSelected(e.target.value); if (e.target.value === 'The first conversation') setSessionFormat('Online'); }}>{offerings.map(o => <option key={o.title} value={o.title}>{t(o.titleKey)} · {o.duration}</option>)}</select></label>
